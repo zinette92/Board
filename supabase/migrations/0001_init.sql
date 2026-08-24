@@ -202,23 +202,10 @@ begin
 end $$;
 
 -- ----------------------------------------------------------------- Storage --
--- Buckets privés : les fichiers ne sont accessibles que par URL signée.
-insert into storage.buckets (id, name, public)
-values ('attachments', 'attachments', false), ('wallpapers', 'wallpapers', false)
-on conflict (id) do nothing;
-
--- Un dossier par utilisateur (`{user_id}/…`) : la politique compare le premier
--- segment du chemin à l'identifiant de session.
-do $$
-declare b text;
-begin
-  foreach b in array array['attachments', 'wallpapers'] loop
-    execute format('drop policy if exists %I on storage.objects', b || '_owner');
-    execute format(
-      'create policy %I on storage.objects for all to authenticated
-         using (bucket_id = %L and (storage.foldername(name))[1] = auth.uid()::text)
-         with check (bucket_id = %L and (storage.foldername(name))[1] = auth.uid()::text)',
-      b || '_owner', b, b
-    );
-  end loop;
-end $$;
+-- Déplacé dans `0002_storage.sql`.
+--
+-- Motif : sur ce projet, la section Storage de ce fichier n'a rien créé — les
+-- huit tables et leurs politiques RLS étaient bien en place, mais les deux
+-- buckets manquaient. L'éditeur SQL n'est pas toujours propriétaire de
+-- `storage.objects`, et l'échec passe inaperçu au milieu d'un long script.
+-- Isolé dans son propre fichier, le problème est visible immédiatement.
