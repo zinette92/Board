@@ -1,0 +1,43 @@
+name: Déploiement Vercel (production)
+
+# Déploie à chaque push sur main.
+#
+# Pourquoi ce workflow plutôt que l'intégration native GitHub → Vercel :
+# l'import échoue sur ce compte (« You need admin or write access to the
+# repository »), le compte GitHub relié à l'équipe Vercel n'étant pas celui
+# qui possède le dépôt. Le CLI, lui, n'a pas besoin de ce lien.
+#
+# Prérequis : un secret GitHub « VERCEL_TOKEN » (vercel.com/account/tokens).
+
+on:
+  push:
+    branches: [main]
+
+env:
+  VERCEL_ORG_ID: team_OSGuczsWWGaLokEZL78A5Z8Z
+  VERCEL_PROJECT_ID: prj_RNEFPUifLGVJfyactV4rT4XjCIB2
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Installer Vercel CLI
+        # version figée : évite les surprises des mises à jour du CLI
+        run: npm install --global vercel@58.4.0
+
+      - name: Récupérer la config du projet
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      # Les variables VITE_* sont lues au BUILD, pas à l'exécution : `vercel
+      # pull` les récupère depuis le projet, il n'y a rien à répéter ici.
+      - name: Construire
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Déployer en production
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
