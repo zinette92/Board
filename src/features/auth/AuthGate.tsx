@@ -34,6 +34,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/** Les messages bruts de l'API ne sont pas montrables : on traduit les cas connus. */
+function readable(message: string): string {
+  if (message === 'Invalid login credentials') return 'Adresse ou mot de passe incorrect.'
+  if (message === 'Email not confirmed') {
+    return "Ce compte n'est pas confirmé — coche « Auto Confirm User » dans Supabase."
+  }
+  // « Failed to fetch » : projet injoignable, en pause, ou URL mal renseignée.
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return "Serveur injoignable. Vérifie ta connexion, et que le projet Supabase n'est pas en pause."
+  }
+  return message
+}
+
 function SignIn() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -44,13 +57,7 @@ function SignIn() {
     setBusy(true)
     setError(null)
     const { error: cause } = await supabase.auth.signInWithPassword({ email, password })
-    if (cause) {
-      setError(
-        cause.message === 'Invalid login credentials'
-          ? 'Adresse ou mot de passe incorrect.'
-          : cause.message,
-      )
-    }
+    if (cause) setError(readable(cause.message))
     setBusy(false)
   }
 
