@@ -1046,8 +1046,13 @@ function DescriptionEditor({
  * librement : dans ce cas elle sera **créée** le jour de l'envoi. C'est
  * pourquoi elle est mémorisée par nom et non par identifiant.
  */
+/** Valeur sentinelle du menu : saisir un nom de liste qui n'existe pas encore. */
+const NEW_LIST = '__nouvelle_liste__'
+
 function ScheduleEditor({ card }: { card: Card }) {
   const store = useStore()
+  // Avant tout retour anticipé : un hook ne se déclare pas conditionnellement.
+  const [custom, setCustom] = useState(false)
   const schedule = card.schedule
   const lists = store.lists
     .filter((item) => item.boardId === card.boardId && item.archivedAt === null && !item.isTemplate)
@@ -1113,26 +1118,38 @@ function ScheduleEditor({ card }: { card: Card }) {
     }
   }
 
-  const known = lists.some(
+  // La destination est mémorisée par NOM : elle peut désigner une liste encore
+  // inexistante, qui sera alors créée au moment de l'envoi.
+  const match = lists.find(
     (item) => item.name.trim().toLowerCase() === schedule.listName.trim().toLowerCase(),
   )
+  const showCustom = custom || match === undefined
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-40 flex-1">
           <span className="mb-1 block text-[11px] text-muted">Liste de destination</span>
-          <TextInput
-            value={schedule.listName}
-            list="listes-du-tableau"
-            placeholder="Ex. À faire"
-            onChange={(event) => set({ listName: event.target.value })}
-          />
-          <datalist id="listes-du-tableau">
+          <Select
+            className="w-full"
+            value={showCustom ? NEW_LIST : (match?.name ?? NEW_LIST)}
+            aria-label="Liste de destination"
+            onChange={(event) => {
+              if (event.target.value === NEW_LIST) {
+                setCustom(true)
+                return
+              }
+              setCustom(false)
+              set({ listName: event.target.value })
+            }}
+          >
             {lists.map((item) => (
-              <option key={item.id} value={item.name} />
+              <option key={item.id} value={item.name}>
+                {item.name}
+              </option>
             ))}
-          </datalist>
+            <option value={NEW_LIST}>➕ Une autre liste…</option>
+          </Select>
         </label>
         <div>
           <span className="mb-1 block text-[11px] text-muted">Prochain envoi</span>
@@ -1148,11 +1165,24 @@ function ScheduleEditor({ card }: { card: Card }) {
         </div>
       </div>
 
-      {!known ? (
-        <p className="text-xs text-warn">
-          « {schedule.listName.trim() || '…'} » n'existe pas encore — elle sera créée
-          automatiquement au moment de l'envoi.
-        </p>
+      {showCustom ? (
+        <div className="flex flex-col gap-1">
+          <TextInput
+            autoFocus={custom}
+            value={schedule.listName}
+            placeholder="Nom de la liste à créer"
+            aria-label="Nom de la liste de destination"
+            onChange={(event) => set({ listName: event.target.value })}
+          />
+          {match === undefined ? (
+            <p className="text-xs text-warn">
+              « {schedule.listName.trim() || '…'} » n'existe pas encore — elle sera créée
+              automatiquement au moment de l'envoi.
+            </p>
+          ) : (
+            <p className="text-xs text-muted">« {match.name} » existe déjà : la copie ira dedans.</p>
+          )}
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">

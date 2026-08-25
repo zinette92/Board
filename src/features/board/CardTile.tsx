@@ -38,14 +38,29 @@ export function CardFace({
   const items = card.checklists.flatMap((checklist) => checklist.items)
   const checked = items.filter((item) => item.done).length
   const done = card.doneAt !== null
+  const hasDescription = card.description.trim().length > 0
+  /** Modèle dont l'envoi est armé : il attend sa date. Une copie n'a jamais de
+      programmation, le sablier ne marque donc que le gabarit. */
+  const waiting = card.schedule !== null && card.schedule.active
 
   return (
     <article
       className={cx(
-        'rounded-lg border border-line bg-surface px-2.5 py-2 text-left shadow-sm transition-colors',
+        'relative rounded-lg border border-line bg-surface px-2.5 py-2 text-left shadow-sm transition-colors',
+        // Réserve la place du sablier pour que les étiquettes ne passent pas dessous.
+        waiting && 'pr-7',
         dragging ? 'rotate-1 shadow-lg' : 'hover:border-accent/50',
       )}
     >
+      {waiting && card.schedule ? (
+        <span
+          className="absolute top-1.5 right-1.5 text-xs leading-none"
+          title={`En attente d'envoi le ${formatDue(card.schedule.nextOn)} vers « ${card.schedule.listName} »`}
+          aria-label={`En attente d'envoi le ${formatDue(card.schedule.nextOn)}`}
+        >
+          ⏳
+        </span>
+      ) : null}
       {labels.length > 0 ? (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {labels.map((label) => (
@@ -86,7 +101,12 @@ export function CardFace({
         </p>
       </div>
 
-      {goal || card.dueOn || items.length > 0 || card.attachmentCount > 0 || card.schedule ? (
+      {goal ||
+      card.dueOn ||
+      hasDescription ||
+      items.length > 0 ||
+      card.attachmentCount > 0 ||
+      card.schedule ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           {goal ? (
             <Pill tone="accent" className="max-w-full">
@@ -100,6 +120,12 @@ export function CardFace({
             <Pill tone={done ? 'muted' : DUE_TONES[dueTone(card.dueOn)]}>
               📅 {formatDue(card.dueOn)}
               {card.dueTime ? ` · ${card.dueTime}` : ''}
+            </Pill>
+          ) : null}
+          {/* Trois traits à la Trello : la carte porte une description. */}
+          {hasDescription ? (
+            <Pill title="Cette carte a une description" className="px-1.5 tracking-tight">
+              ≡
             </Pill>
           ) : null}
           {items.length > 0 ? (
