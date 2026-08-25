@@ -111,6 +111,11 @@ export type Card = {
   dueTime: string | null
   /** Coché à la main (rond de la carte), jamais déduit de la liste. */
   doneAt: string | null
+  /**
+   * Mise en attente **manuelle** : la tâche est bloquée ou repoussée, et c'est
+   * le user qui la marque. Sans aucun rapport avec `schedule`, qui est une date.
+   */
+  waiting: boolean
   checklists: Checklist[]
   /** Nombre de pièces jointes ; les fichiers eux-mêmes vivent dans leur propre store. */
   attachmentCount: number

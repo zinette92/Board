@@ -242,6 +242,17 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       className="justify-start"
                       onClick={() => {
                         setActionsOpen(false)
+                        void store.updateCard(card.id, { waiting: !card.waiting })
+                      }}
+                    >
+                      {card.waiting ? '⏳ Retirer de l’attente' : '⏳ Mettre en attente'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="justify-start"
+                      onClick={() => {
+                        setActionsOpen(false)
                         void store.duplicateCard(card.id)
                       }}
                     >

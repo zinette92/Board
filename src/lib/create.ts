@@ -74,6 +74,7 @@ export function makeCard(boardId: ID, listId: ID, title: string, position: numbe
     dueOn: null,
     dueTime: null,
     doneAt: null,
+    waiting: false,
     checklists: [],
     attachmentCount: 0,
     schedule: null,

@@ -27,6 +27,7 @@ export function CardFace({
   goal,
   dragging,
   onToggleDone,
+  onToggleWaiting,
 }: {
   card: Card
   labels: Label[]
@@ -34,32 +35,38 @@ export function CardFace({
   dragging?: boolean
   /** Absent (aperçu de drag) : le rond est décoratif. */
   onToggleDone?: () => void
+  /** Absent (aperçu de drag) : le sablier est décoratif. */
+  onToggleWaiting?: () => void
 }) {
   const items = card.checklists.flatMap((checklist) => checklist.items)
   const checked = items.filter((item) => item.done).length
   const done = card.doneAt !== null
   const hasDescription = card.description.trim().length > 0
-  /** Modèle dont l'envoi est armé : il attend sa date. Une copie n'a jamais de
-      programmation, le sablier ne marque donc que le gabarit. */
-  const waiting = card.schedule !== null && card.schedule.active
 
   return (
     <article
       className={cx(
         'relative rounded-lg border border-line bg-surface px-2.5 py-2 text-left shadow-sm transition-colors',
         // Réserve la place du sablier pour que les étiquettes ne passent pas dessous.
-        waiting && 'pr-7',
+        card.waiting && 'pr-7',
         dragging ? 'rotate-1 shadow-lg' : 'hover:border-accent/50',
       )}
     >
-      {waiting && card.schedule ? (
-        <span
-          className="absolute top-1.5 right-1.5 text-xs leading-none"
-          title={`En attente d'envoi le ${formatDue(card.schedule.nextOn)} vers « ${card.schedule.listName} »`}
-          aria-label={`En attente d'envoi le ${formatDue(card.schedule.nextOn)}`}
+      {/* Attente posée à la main par le user — un clic la retire. */}
+      {card.waiting ? (
+        <button
+          type="button"
+          disabled={!onToggleWaiting}
+          title={onToggleWaiting ? 'En attente — cliquer pour retirer' : 'En attente'}
+          aria-label="Retirer de l'attente"
+          className="absolute top-1.5 right-1.5 rounded text-xs leading-none transition-opacity hover:opacity-50 disabled:hover:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggleWaiting?.()
+          }}
         >
           ⏳
-        </span>
+        </button>
       ) : null}
       {labels.length > 0 ? (
         <div className="mb-1.5 flex flex-wrap gap-1">
@@ -217,7 +224,13 @@ export function CardTile({
         }
       }}
     >
-      <CardFace card={card} labels={labels} goal={goal} onToggleDone={onToggleDone} />
+      <CardFace
+        card={card}
+        labels={labels}
+        goal={goal}
+        onToggleDone={onToggleDone}
+        onToggleWaiting={() => void store.updateCard(card.id, { waiting: false })}
+      />
     </div>
   )
 }

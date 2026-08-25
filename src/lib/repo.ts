@@ -111,6 +111,7 @@ type CardRow = {
   due_on: string | null
   due_time: string | null
   done_at: string | null
+  waiting: boolean
   checklists: Checklist[]
   attachment_count: number
   schedule: CardSchedule | null
@@ -271,6 +272,7 @@ const card = {
     dueOn: r.due_on,
     dueTime: r.due_time,
     doneAt: r.done_at,
+    waiting: r.waiting ?? false,
     checklists: r.checklists ?? [],
     attachmentCount: r.attachment_count,
     schedule: r.schedule ?? null,
@@ -291,6 +293,7 @@ const card = {
     due_on: c.dueOn,
     due_time: c.dueTime,
     done_at: c.doneAt,
+    waiting: c.waiting,
     checklists: c.checklists,
     attachment_count: c.attachmentCount,
     schedule: c.schedule,
