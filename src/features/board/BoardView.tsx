@@ -38,17 +38,22 @@ const LIST_PREFIX = 'list:'
 type Arrangement = Record<ID, ID[]>
 
 /**
- * Détection de collision. Le point faible de `closestCorners` seul : pour une
- * carte en plein milieu d'une colonne, il renvoyait souvent la COLONNE (ou le
- * sortable de liste, qui couvre toute la section) — jamais les cartes voisines.
- * Or le décalage visuel de dnd-kit ne se produit que si `over` est une carte
- * du même contexte. D'où : sous le pointeur, cartes d'abord, conteneurs
- * ensuite, et les sortables de liste sont exclus pendant un drag de carte.
+ * Détection de collision.
+ *
+ * Règle commune aux deux familles : **dnd-kit ne décale les voisins que si
+ * `over` appartient au même `SortableContext` que l'élément déplacé.** Laissé à
+ * lui-même, `closestCorners` renvoie n'importe quel droppable — une carte
+ * pendant qu'on déplace une colonne, une colonne pendant qu'on déplace une
+ * carte — et l'aperçu de réorganisation ne se produit jamais.
+ *
+ * On filtre donc les collisions par type selon ce qui est déplacé.
  */
 const collisionForBoard: CollisionDetection = (args) => {
-  if (args.active.data.current?.type === 'card') {
-    const typeOf = (id: UniqueIdentifier) =>
-      args.droppableContainers.find((container) => container.id === id)?.data.current?.type
+  const typeOf = (id: UniqueIdentifier) =>
+    args.droppableContainers.find((container) => container.id === id)?.data.current?.type
+  const dragged = args.active.data.current?.type
+
+  if (dragged === 'card') {
     const within = pointerWithin(args)
     const cards = within.filter((collision) => typeOf(collision.id) === 'card')
     if (cards.length > 0) return cards
@@ -58,6 +63,19 @@ const collisionForBoard: CollisionDetection = (args) => {
     // toujours sans les sortables de liste.
     return rectIntersection(args).filter((collision) => typeOf(collision.id) !== 'list')
   }
+
+  if (dragged === 'list') {
+    // Ne garder QUE les colonnes : les cartes et les zones de dépôt qu'elles
+    // contiennent gagnaient sinon la collision, et les colonnes voisines
+    // restaient immobiles jusqu'au dépôt.
+    const onlyLists = (collisions: ReturnType<CollisionDetection>) =>
+      collisions.filter((collision) => typeOf(collision.id) === 'list')
+    const within = onlyLists(pointerWithin(args))
+    if (within.length > 0) return within
+    // Pointeur entre deux colonnes ou hors du tableau : la plus proche.
+    return onlyLists(closestCorners(args))
+  }
+
   return closestCorners(args)
 }
 
@@ -177,14 +195,11 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     if (active.data.current?.type === 'list') {
       setDragArrangement(null)
       if (!over || over.id === active.id) return
+      // `collisionForBoard` ne renvoie que des colonnes pendant un drag de
+      // colonne : `over.id` est donc toujours un `list:<id>`, plus besoin de
+      // remonter depuis une carte comme auparavant.
       const from = lists.findIndex((list) => `${LIST_PREFIX}${list.id}` === String(active.id))
-      // Le dépôt tombe souvent sur une carte ou la zone de dépôt d'une colonne,
-      // pas sur la colonne triable elle-même : on remonte à la liste propriétaire.
-      let to = lists.findIndex((list) => `${LIST_PREFIX}${list.id}` === String(over.id))
-      if (to === -1) {
-        const containerId = resolveContainer(baseArrangement, over.id)
-        to = lists.findIndex((list) => list.id === containerId)
-      }
+      const to = lists.findIndex((list) => `${LIST_PREFIX}${list.id}` === String(over.id))
       if (from === -1 || to === -1 || from === to) return
       await store.moveList(lists[from].id, to)
       return
