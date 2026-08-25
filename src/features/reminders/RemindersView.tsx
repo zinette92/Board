@@ -6,6 +6,7 @@ import {
   ConfirmButton,
   Field,
   IconButton,
+  Modal,
   Pill,
   Select,
   TextArea,
@@ -517,8 +518,8 @@ function ReminderCard({
             réduite — un badge distinct plutôt qu'une simple icône au survol. */}
         <button
           type="button"
-          aria-label={open ? 'Replier' : 'Modifier'}
-          title={open ? 'Replier' : 'Modifier'}
+          aria-label="Modifier le rappel"
+          title="Modifier le rappel"
           onClick={onToggle}
           className={cx(
             'grid size-7 shrink-0 place-items-center rounded-full border text-xs transition-colors',
@@ -527,12 +528,42 @@ function ReminderCard({
               : 'border-line bg-surface-2 text-muted hover:border-accent hover:text-accent',
           )}
         >
-          ↕
+          ✎
         </button>
       </div>
 
-      {open ? (
-        <div className="flex flex-col gap-3 border-t border-line px-3 py-3">
+      <Modal
+        open={open}
+        onClose={onToggle}
+        wide
+        title={reminder.title.trim() || 'Rappel sans titre'}
+        footer={
+          <>
+            <span className="mr-auto text-xs text-muted">
+              {next
+                ? `Prochaine échéance : ${formatWhen(next, reminder.at)}`
+                : 'Aucune échéance à venir.'}
+              {reminder.leadDays > 0 && next
+                ? ` · pré-avis le ${formatFullDay(addDays(next, -reminder.leadDays))}`
+                : ''}
+            </span>
+            <ConfirmButton
+              confirmLabel="Supprimer pour de bon"
+              onConfirm={() => {
+                // Fermer AVANT de supprimer : la fiche perdrait sa source.
+                onToggle()
+                void store.deleteReminder(reminder.id)
+              }}
+            >
+              Supprimer
+            </ConfirmButton>
+            <Button variant="primary" onClick={onToggle}>
+              Terminé
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
           <Field label="Titre">
             <TextInput
               value={reminder.title}
@@ -727,24 +758,8 @@ function ReminderCard({
             )}
           </div>
 
-          <div className="flex items-center justify-between border-t border-line pt-3">
-            <span className="text-xs text-muted">
-              {next
-                ? `Prochaine échéance : ${formatWhen(next, reminder.at)}`
-                : 'Aucune échéance à venir.'}
-              {reminder.leadDays > 0 && next
-                ? ` · pré-avis le ${formatFullDay(addDays(next, -reminder.leadDays))}`
-                : ''}
-            </span>
-            <ConfirmButton
-              confirmLabel="Supprimer pour de bon"
-              onConfirm={() => store.deleteReminder(reminder.id)}
-            >
-              Supprimer
-            </ConfirmButton>
-          </div>
         </div>
-      ) : null}
+      </Modal>
     </li>
   )
 }

@@ -251,13 +251,18 @@ export function DatePicker({
     let left = anchorRect.left
     left = Math.min(Math.max(margin, left), window.innerWidth - panelRect.width - margin)
     setPos({ top, left })
-    // `day`/`time` changent la hauteur (bouton « Sans heure », rangées du mois).
-  }, [open, day, time, withTime, anchor])
+    // `day`/`time` changent bien la hauteur (apparition du bouton « Sans heure »).
+    // `anchor` NON : la grille fait 6 rangées en toutes saisons. L'exclure des
+    // dépendances garantit qu'aucun changement de mois ne déplace le panneau.
+  }, [open, day, time, withTime])
 
-  const daysInMonth = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate()
   const offset = (new Date(anchor.getFullYear(), anchor.getMonth(), 1).getDay() + 6) % 7
-  const rows = Math.ceil((offset + daysInMonth) / 7)
-  const cells = Array.from({ length: rows * 7 }, (_, i) =>
+  // TOUJOURS 6 rangées, même quand le mois en occupe 5. Une grille à hauteur
+  // variable ferait changer la hauteur du panneau d'un mois à l'autre : le
+  // placement se recalculerait, les flèches ‹ › glisseraient sous le curseur et
+  // l'on ne pourrait plus enchaîner les clics. Les cases en trop débordent sur
+  // le mois suivant et sont grisées, comme celles du mois précédent.
+  const cells = Array.from({ length: 6 * 7 }, (_, i) =>
     toDay(new Date(anchor.getFullYear(), anchor.getMonth(), 1 - offset + i)),
   )
 
