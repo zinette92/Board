@@ -90,7 +90,7 @@ function hasOrphanLabel(reminder: Reminder, labelIds: Set<ID>): boolean {
 type ReminderScope = 'month' | 'all'
 type LabelFilter = 'all' | 'other' | ID
 
-export function RemindersView() {
+export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
   const store = useStore()
   const [draft, setDraft] = useState('')
   const [openId, setOpenId] = useState<ID | null>(null)
@@ -139,8 +139,13 @@ export function RemindersView() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 pt-3">
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
+      <div
+        className={cx(
+          'mx-auto flex max-w-3xl flex-col gap-3',
+          hasWallpaper && 'glass-dark rounded-2xl border border-line p-4',
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="mr-auto text-lg font-semibold">Rappels</h2>
 

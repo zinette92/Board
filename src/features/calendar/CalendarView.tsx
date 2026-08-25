@@ -26,7 +26,13 @@ const MODE_KEY = 'perso-board:calendar-mode'
  * parcourt en scrollant (seuls les jours occupés y figurent, aujourd'hui sert
  * de point d'ancrage).
  */
-export function CalendarView({ onOpenCard }: { onOpenCard: (id: ID) => void }) {
+export function CalendarView({
+  onOpenCard,
+  hasWallpaper,
+}: {
+  onOpenCard: (id: ID) => void
+  hasWallpaper: boolean
+}) {
   const store = useStore()
   const [mode, setMode] = useState<Mode>(() =>
     localStorage.getItem(MODE_KEY) === 'agenda' ? 'agenda' : 'month',
@@ -99,8 +105,13 @@ export function CalendarView({ onOpenCard }: { onOpenCard: (id: ID) => void }) {
   const todayDay = today()
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-3 pt-3">
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
+      <div
+        className={cx(
+          'mx-auto flex max-w-6xl flex-col gap-3',
+          hasWallpaper && 'glass-dark rounded-2xl border border-line p-4',
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="mr-auto text-lg font-semibold capitalize">
             {mode === 'month' ? monthFormatter.format(anchor) : 'Agenda'}

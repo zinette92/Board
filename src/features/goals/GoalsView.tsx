@@ -39,7 +39,13 @@ import { useStore } from '../../lib/state'
 import { GOAL_CATEGORIES, GOAL_CATEGORY_LABELS } from '../../lib/types'
 import type { Card, Goal, GoalCategory, ID } from '../../lib/types'
 
-export function GoalsView({ onOpenCard }: { onOpenCard: (id: ID) => void }) {
+export function GoalsView({
+  onOpenCard,
+  hasWallpaper,
+}: {
+  onOpenCard: (id: ID) => void
+  hasWallpaper: boolean
+}) {
   const store = useStore()
   const [editing, setEditing] = useState<ID | null>(null)
   const [showArchived, setShowArchived] = useState(false)
@@ -60,8 +66,15 @@ export function GoalsView({ onOpenCard }: { onOpenCard: (id: ID) => void }) {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4 pt-3">
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
+      <div
+        className={cx(
+          'mx-auto flex max-w-4xl flex-col gap-4',
+          // Panneau en verre par-dessus la photo : la colonne reste centrée,
+          // le fond d'écran demeure visible de chaque côté.
+          hasWallpaper && 'glass-dark rounded-2xl border border-line p-4',
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="mr-auto text-lg font-semibold">Objectifs SMART</h2>
           {store.goals.some((goal) => goal.status === 'archived') ? (

@@ -53,10 +53,12 @@ export function App() {
     )
   }
 
-  // Le fond d'écran du tableau couvre tout l'écran ; l'en-tête passe alors en
-  // verre sombre pour rester lisible par-dessus la photo.
+  // Le fond d'écran couvre tout l'écran sur TOUS les onglets de travail —
+  // Réglages excepté, qui reste une page de configuration à plat. L'en-tête et
+  // le contenu passent alors en verre sombre pour rester lisibles par-dessus
+  // la photo, laquelle reste visible de part et d'autre des colonnes centrées.
   const wallpaper = board ? store.wallpapers[board.id] : undefined
-  const showWallpaper = view === 'board' && Boolean(wallpaper)
+  const showWallpaper = view !== 'settings' && Boolean(wallpaper)
 
   return (
     <div
@@ -138,9 +140,13 @@ export function App() {
         )
       ) : null}
 
-      {view === 'goals' ? <GoalsView onOpenCard={setOpenCardId} /> : null}
-      {view === 'calendar' ? <CalendarView onOpenCard={setOpenCardId} /> : null}
-      {view === 'automation' ? <RemindersView /> : null}
+      {view === 'goals' ? (
+        <GoalsView onOpenCard={setOpenCardId} hasWallpaper={showWallpaper} />
+      ) : null}
+      {view === 'calendar' ? (
+        <CalendarView onOpenCard={setOpenCardId} hasWallpaper={showWallpaper} />
+      ) : null}
+      {view === 'automation' ? <RemindersView hasWallpaper={showWallpaper} /> : null}
       {view === 'settings' ? <SettingsView theme={theme} setTheme={setTheme} /> : null}
 
       {openCardId ? <CardDetail cardId={openCardId} onClose={closeCard} /> : null}
