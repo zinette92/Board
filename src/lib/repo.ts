@@ -21,6 +21,7 @@ import type {
   Attachment,
   Board,
   Card,
+  CardSchedule,
   Checklist,
   Goal,
   GoalCategory,
@@ -61,6 +62,7 @@ type ListRow = {
   name: string
   position: number
   is_done: boolean
+  is_template: boolean
   wip_limit: number
   color: string | null
   collapsed: boolean
@@ -111,6 +113,7 @@ type CardRow = {
   done_at: string | null
   checklists: Checklist[]
   attachment_count: number
+  schedule: CardSchedule | null
   created_at: string
   updated_at: string
   archived_at: string | null
@@ -174,6 +177,7 @@ const list = {
     name: r.name,
     position: r.position,
     isDone: r.is_done,
+    isTemplate: r.is_template ?? false,
     wipLimit: r.wip_limit,
     color: r.color as LabelColor | null,
     collapsed: r.collapsed,
@@ -187,6 +191,7 @@ const list = {
     name: l.name,
     position: l.position,
     is_done: l.isDone,
+    is_template: l.isTemplate,
     wip_limit: l.wipLimit,
     color: l.color,
     collapsed: l.collapsed,
@@ -268,6 +273,7 @@ const card = {
     doneAt: r.done_at,
     checklists: r.checklists ?? [],
     attachmentCount: r.attachment_count,
+    schedule: r.schedule ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     archivedAt: r.archived_at,
@@ -287,6 +293,7 @@ const card = {
     done_at: c.doneAt,
     checklists: c.checklists,
     attachment_count: c.attachmentCount,
+    schedule: c.schedule,
     created_at: c.createdAt,
     updated_at: c.updatedAt,
     archived_at: c.archivedAt,

@@ -86,7 +86,7 @@ export function CardFace({
         </p>
       </div>
 
-      {goal || card.dueOn || items.length > 0 || card.attachmentCount > 0 ? (
+      {goal || card.dueOn || items.length > 0 || card.attachmentCount > 0 || card.schedule ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           {goal ? (
             <Pill tone="accent" className="max-w-full">
@@ -108,6 +108,12 @@ export function CardFace({
             </Pill>
           ) : null}
           {card.attachmentCount > 0 ? <Pill>📎 {card.attachmentCount}</Pill> : null}
+          {/* Modèle programmé : on voit d'un coup d'œil qu'il partira tout seul. */}
+          {card.schedule ? (
+            <Pill tone={card.schedule.active ? 'accent' : 'muted'}>
+              🗓 {card.schedule.active ? formatDue(card.schedule.nextOn) : 'suspendu'}
+            </Pill>
+          ) : null}
         </div>
       ) : null}
     </article>

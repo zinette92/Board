@@ -283,6 +283,23 @@ function ListMenu({ list, onClose }: { list: List; onClose: () => void }) {
 
         <div className="my-2.5 border-t border-line" />
 
+        {/* Liste de modèles : ses cartes deviennent des gabarits, duplicables
+            et programmables. La liste elle-même reste une liste ordinaire. */}
+        <label className="flex cursor-pointer items-start gap-2 px-1 py-1">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-3.5 accent-[var(--accent)]"
+            checked={list.isTemplate}
+            onChange={(event) => store.updateList(list.id, { isTemplate: event.target.checked })}
+          />
+          <span className="text-xs text-muted">
+            <span className="font-medium text-ink">Liste de modèles</span> — ses cartes se
+            dupliquent et peuvent partir dans une autre liste à une date choisie.
+          </span>
+        </label>
+
+        <div className="my-2.5 border-t border-line" />
+
         <ConfirmButton
           className="w-full"
           confirmLabel="Confirmer l'archivage"

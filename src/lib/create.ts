@@ -35,7 +35,12 @@ export function makeList(
   boardId: ID,
   name: string,
   position: number,
-  options: { isDone?: boolean; wipLimit?: number; color?: LabelColor | null } = {},
+  options: {
+    isDone?: boolean
+    wipLimit?: number
+    color?: LabelColor | null
+    isTemplate?: boolean
+  } = {},
 ): List {
   const at = nowIso()
   return {
@@ -44,6 +49,7 @@ export function makeList(
     name: name.trim() || 'Nouvelle liste',
     position,
     isDone: options.isDone ?? false,
+    isTemplate: options.isTemplate ?? false,
     wipLimit: options.wipLimit ?? 0,
     color: options.color ?? null,
     collapsed: false,
@@ -70,6 +76,7 @@ export function makeCard(boardId: ID, listId: ID, title: string, position: numbe
     doneAt: null,
     checklists: [],
     attachmentCount: 0,
+    schedule: null,
     createdAt: at,
     updatedAt: at,
     archivedAt: null,

@@ -37,6 +37,12 @@ export type List = {
   color: LabelColor | null
   /** Réduite en barre verticale, à la Trello. */
   collapsed: boolean
+  /**
+   * Liste de modèles : ses cartes servent de gabarits. Elles se comportent
+   * comme toutes les autres, à ceci près qu'on peut les dupliquer et
+   * programmer l'envoi d'une copie dans une autre liste.
+   */
+  isTemplate: boolean
   createdAt: string
   updatedAt: string
   archivedAt: string | null
@@ -108,6 +114,8 @@ export type Card = {
   checklists: Checklist[]
   /** Nombre de pièces jointes ; les fichiers eux-mêmes vivent dans leur propre store. */
   attachmentCount: number
+  /** Envoi programmé — n'a de sens que pour une carte d'une liste de modèles. */
+  schedule: CardSchedule | null
   createdAt: string
   updatedAt: string
   archivedAt: string | null
@@ -201,6 +209,28 @@ export type RecurrenceUnit = (typeof RECURRENCE_UNITS)[number]
 export type Repeat =
   | { kind: 'interval'; interval: number; unit: RecurrenceUnit }
   | { kind: 'weekdays'; days: number[] }
+
+/**
+ * Programmation d'envoi d'une carte modèle : le jour venu, une **copie** part
+ * dans la liste voulue, l'original restant dans la liste de modèles.
+ *
+ * La destination est mémorisée par **nom** et non par identifiant : c'est ce
+ * qui permet de recréer la liste si elle a disparu, plutôt que de perdre
+ * l'envoi.
+ */
+export type CardSchedule = {
+  /** Nom de la liste de destination ; recréée à l'identique si absente. */
+  listName: string
+  /** Prochaine date d'envoi, `YYYY-MM-DD`. */
+  nextOn: string
+  /** `null` = un seul envoi. Même vocabulaire que les rappels. */
+  repeat: Repeat | null
+  /** La copie porte-t-elle la date d'envoi comme échéance ? */
+  setDueDate: boolean
+  active: boolean
+  /** Dernier envoi effectué, pour l'afficher sans deviner. */
+  lastRunOn: string | null
+}
 
 /**
  * Rappel : une échéance datée et heurée, qui n'apparaît que dans le

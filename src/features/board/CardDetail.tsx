@@ -23,12 +23,23 @@ import {
   TextInput,
   cx,
 } from '../../components/ui'
-import { dueTone, formatDue, formatInstant, parseDay } from '../../lib/dates'
+import {
+  addDays,
+  dueTone,
+  formatDue,
+  formatFullDay,
+  formatInstant,
+  parseDay,
+  today,
+} from '../../lib/dates'
 import { formatAmount, formatWithUnit } from '../../lib/goals'
+import { describeSchedule, makeSchedule } from '../../lib/models'
 import { byPosition } from '../../lib/ordering'
 import { chipStyle, listTintStyle } from '../../lib/palette'
 import { MAX_ATTACHMENT_BYTES, useStore } from '../../lib/state'
-import type { Attachment, Card, ID } from '../../lib/types'
+import { WEEKDAYS } from '../../lib/reminders'
+import type { Attachment, Card, ID, RecurrenceUnit, Repeat } from '../../lib/types'
+import { RECURRENCE_UNITS } from '../../lib/types'
 
 const dueDayFormatter = new Intl.DateTimeFormat('fr-FR', {
   weekday: 'short',
@@ -125,6 +136,8 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   }, [readAttachments, card.id, card.attachmentCount])
 
   const done = card.doneAt !== null
+  /** Carte d'une liste marquée « modèles » : elle gagne duplication et envoi. */
+  const isModel = list?.isTemplate === true
 
   // Une section existe si elle a du contenu, ou si on vient de l'ajouter.
   const show = {
@@ -223,6 +236,30 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 <>
                   <div className="fixed inset-0 z-10" onMouseDown={() => setActionsOpen(false)} />
                   <div className="absolute top-8 right-0 z-20 flex w-52 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="justify-start"
+                      onClick={() => {
+                        setActionsOpen(false)
+                        void store.duplicateCard(card.id)
+                      }}
+                    >
+                      ⧉ Dupliquer
+                    </Button>
+                    {isModel ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="justify-start"
+                        onClick={() => {
+                          setActionsOpen(false)
+                          openSection('schedule')
+                        }}
+                      >
+                        🗓 Programmer l'envoi…
+                      </Button>
+                    ) : null}
                     {card.archivedAt !== null ? (
                       <Button
                         size="sm"
@@ -330,6 +367,13 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
             📎 Pièce jointe
           </Button>
         </div>
+
+        {/* -------------------------------------------------------- Envoi programmé */}
+        {isModel && (card.schedule || opened.schedule === true) ? (
+          <Section icon="🗓" title="Envoi programmé">
+            <ScheduleEditor card={card} />
+          </Section>
+        ) : null}
 
         {/* ------------------------------------------------------------ Étiquettes */}
         {show.labels ? (
@@ -990,6 +1034,238 @@ function DescriptionEditor({
         <span className="ml-auto text-[11px] text-muted">
           mise en forme directe — enregistrée en markdown
         </span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Programmation d'envoi d'une carte modèle.
+ *
+ * La liste de destination se choisit parmi celles du tableau, ou se saisit
+ * librement : dans ce cas elle sera **créée** le jour de l'envoi. C'est
+ * pourquoi elle est mémorisée par nom et non par identifiant.
+ */
+function ScheduleEditor({ card }: { card: Card }) {
+  const store = useStore()
+  const schedule = card.schedule
+  const lists = store.lists
+    .filter((item) => item.boardId === card.boardId && item.archivedAt === null && !item.isTemplate)
+    .sort(byPosition)
+
+  if (!schedule) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-muted">
+          Le jour venu, une copie de cette carte partira dans la liste choisie. L'original reste
+          ici.
+        </p>
+        <Button
+          size="sm"
+          variant="primary"
+          className="self-start"
+          onClick={() =>
+            store.setCardSchedule(
+              card.id,
+              makeSchedule(lists[0]?.name ?? 'À faire', addDays(today(), 1)),
+            )
+          }
+        >
+          Programmer un envoi
+        </Button>
+      </div>
+    )
+  }
+
+  const set = (patch: Partial<typeof schedule>) =>
+    store.setCardSchedule(card.id, { ...schedule, ...patch })
+
+  const mode: 'once' | 'daily' | 'weekly' | 'weekdays' | 'interval' =
+    schedule.repeat === null
+      ? 'once'
+      : schedule.repeat.kind === 'weekdays'
+        ? 'weekdays'
+        : schedule.repeat.interval === 1 && schedule.repeat.unit === 'day'
+          ? 'daily'
+          : schedule.repeat.interval === 1 && schedule.repeat.unit === 'week'
+            ? 'weekly'
+            : 'interval'
+
+  const repeatFor = (next: typeof mode): Repeat | null => {
+    switch (next) {
+      case 'once':
+        return null
+      case 'daily':
+        return { kind: 'interval', interval: 1, unit: 'day' }
+      case 'weekly':
+        return { kind: 'interval', interval: 1, unit: 'week' }
+      case 'weekdays':
+        return {
+          kind: 'weekdays',
+          days: schedule.repeat?.kind === 'weekdays' ? schedule.repeat.days : [1],
+        }
+      case 'interval':
+        return {
+          kind: 'interval',
+          interval: schedule.repeat?.kind === 'interval' ? Math.max(2, schedule.repeat.interval) : 2,
+          unit: schedule.repeat?.kind === 'interval' ? schedule.repeat.unit : 'month',
+        }
+    }
+  }
+
+  const known = lists.some(
+    (item) => item.name.trim().toLowerCase() === schedule.listName.trim().toLowerCase(),
+  )
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-40 flex-1">
+          <span className="mb-1 block text-[11px] text-muted">Liste de destination</span>
+          <TextInput
+            value={schedule.listName}
+            list="listes-du-tableau"
+            placeholder="Ex. À faire"
+            onChange={(event) => set({ listName: event.target.value })}
+          />
+          <datalist id="listes-du-tableau">
+            {lists.map((item) => (
+              <option key={item.id} value={item.name} />
+            ))}
+          </datalist>
+        </label>
+        <div>
+          <span className="mb-1 block text-[11px] text-muted">Prochain envoi</span>
+          <DatePicker
+            day={schedule.nextOn}
+            onSelect={(day) => set({ nextOn: day })}
+            trigger={(toggle) => (
+              <Button size="sm" onClick={toggle}>
+                📅 {formatFullDay(schedule.nextOn)}
+              </Button>
+            )}
+          />
+        </div>
+      </div>
+
+      {!known ? (
+        <p className="text-xs text-warn">
+          « {schedule.listName.trim() || '…'} » n'existe pas encore — elle sera créée
+          automatiquement au moment de l'envoi.
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={mode}
+          className="w-52"
+          aria-label="Répétition de l'envoi"
+          onChange={(event) => set({ repeat: repeatFor(event.target.value as typeof mode) })}
+        >
+          <option value="once">Une seule fois</option>
+          <option value="daily">Tous les jours</option>
+          <option value="weekly">Toutes les semaines</option>
+          <option value="weekdays">Certains jours de la semaine</option>
+          <option value="interval">Tous les X…</option>
+        </Select>
+
+        {mode === 'interval' && schedule.repeat?.kind === 'interval' ? (
+          <>
+            <TextInput
+              type="number"
+              min={1}
+              value={schedule.repeat.interval}
+              className="w-20"
+              aria-label="Intervalle d'envoi"
+              onChange={(event) => {
+                if (schedule.repeat?.kind !== 'interval') return
+                set({
+                  repeat: {
+                    ...schedule.repeat,
+                    interval: Math.max(1, Number(event.target.value) || 1),
+                  },
+                })
+              }}
+            />
+            <Select
+              value={schedule.repeat.unit}
+              className="w-32"
+              aria-label="Unité d'envoi"
+              onChange={(event) => {
+                if (schedule.repeat?.kind !== 'interval') return
+                set({ repeat: { ...schedule.repeat, unit: event.target.value as RecurrenceUnit } })
+              }}
+            >
+              {RECURRENCE_UNITS.map((unit) => (
+                <option key={unit} value={unit}>
+                  {{ day: 'jour(s)', week: 'semaine(s)', month: 'mois', year: 'an(s)' }[unit]}
+                </option>
+              ))}
+            </Select>
+          </>
+        ) : null}
+      </div>
+
+      {mode === 'weekdays' && schedule.repeat?.kind === 'weekdays' ? (
+        <div className="flex flex-wrap gap-1">
+          {WEEKDAYS.map((weekday) => {
+            const on =
+              schedule.repeat?.kind === 'weekdays' && schedule.repeat.days.includes(weekday.value)
+            return (
+              <button
+                key={weekday.value}
+                type="button"
+                title={weekday.label}
+                onClick={() => {
+                  if (schedule.repeat?.kind !== 'weekdays') return
+                  const days = on
+                    ? schedule.repeat.days.filter((value) => value !== weekday.value)
+                    : [...schedule.repeat.days, weekday.value]
+                  set({ repeat: { kind: 'weekdays', days } })
+                }}
+                className={cx(
+                  'size-8 rounded-lg border text-xs font-semibold transition-colors',
+                  on
+                    ? 'border-accent bg-accent text-accent-ink'
+                    : 'border-line text-muted hover:border-accent',
+                )}
+              >
+                {weekday.short}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-0.5 size-4 accent-[var(--accent)]"
+          checked={schedule.setDueDate}
+          onChange={(event) => set({ setDueDate: event.target.checked })}
+        />
+        <span className="text-xs text-muted">
+          La copie porte la date d'envoi comme échéance — elle apparaît donc aussi au calendrier.
+        </span>
+      </label>
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2">
+        <span className="mr-auto text-xs text-muted">
+          {schedule.active ? describeSchedule(schedule) : 'envoi suspendu'}
+          {schedule.lastRunOn ? ` · dernier envoi le ${formatFullDay(schedule.lastRunOn)}` : ''}
+        </span>
+        <Button size="sm" onClick={() => set({ active: !schedule.active })}>
+          {schedule.active ? '⏸ Suspendre' : '▶ Réactiver'}
+        </Button>
+        <Button size="sm" onClick={() => store.sendModelNow(card.id)}>
+          Envoyer maintenant
+        </Button>
+        <ConfirmButton
+          confirmLabel="Retirer ?"
+          onConfirm={() => store.setCardSchedule(card.id, null)}
+        >
+          Retirer
+        </ConfirmButton>
       </div>
     </div>
   )

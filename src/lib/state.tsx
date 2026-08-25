@@ -26,7 +26,8 @@ import {
   makeReminder,
 } from './create'
 import { addDays, today } from './dates'
-import { nowIso } from './id'
+import { afterRun, isDue } from './models'
+import { newId, nowIso } from './id'
 import { prepareWallpaper } from './image'
 import {
   byPosition,
@@ -42,6 +43,7 @@ import type {
   Attachment,
   Board,
   Card,
+  CardSchedule,
   Checklist,
   ChecklistItem,
   Goal,
@@ -108,6 +110,14 @@ export type Store = {
   setCardDone: (id: ID, done: boolean) => Promise<void>
   archiveCard: (id: ID) => Promise<void>
   deleteCard: (id: ID) => Promise<void>
+  /** Copie une carte juste sous l'originale, pièces jointes exclues. */
+  duplicateCard: (id: ID) => Promise<Card | undefined>
+  /** Programme (ou déprogramme, avec `null`) l'envoi d'une carte modèle. */
+  setCardSchedule: (id: ID, schedule: CardSchedule | null) => Promise<void>
+  /** Envoie tout de suite une copie, sans attendre la date. */
+  sendModelNow: (id: ID) => Promise<void>
+  /** Produit les envois échus ; renvoie le nombre de copies créées. */
+  runDueSchedules: () => Promise<number | undefined>
 
   addChecklist: (cardId: ID, title?: string) => Promise<Checklist | undefined>
   renameChecklist: (cardId: ID, checklistId: ID, title: string) => Promise<void>
@@ -169,6 +179,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [wallpapers, setWallpapers] = useState<Record<ID, string | null>>({})
   /** Chargements en cours : StrictMode et les re-rendus ne doivent pas relire le Blob. */
   const wallpaperLoads = useRef(new Set<ID>())
+  /** Accès aux actions depuis les effets, sans les mettre en dépendance. */
+  const actionsRef = useRef<{ runDueSchedules: () => Promise<number | undefined> } | null>(null)
 
   const apply = useCallback((patch: Partial<Snapshot>) => {
     snapRef.current = { ...snapRef.current, ...patch }
@@ -194,6 +206,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       cancelled = true
     }
   }, [])
+
+  /**
+   * Les envois de modèles échus sont produits à l'ouverture — une application
+   * web ne tourne pas en tâche de fond.
+   */
+  const swept = useRef(false)
+  useEffect(() => {
+    if (!ready || swept.current) return
+    swept.current = true
+    void actionsRef.current?.runDueSchedules()
+  }, [ready])
 
   /** Toute action passe par ici : une écriture qui échoue ne modifie pas l'affichage. */
   const guard = useCallback(async <T,>(body: () => Promise<T>): Promise<T | undefined> => {
@@ -232,6 +255,52 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const saveLists = async (changed: List[]) => {
       await repo.lists.putMany(changed)
       apply({ lists: upsert(snap().lists, changed) })
+    }
+
+    /**
+     * Dépose une copie de la carte modèle dans la liste voulue.
+     *
+     * La destination est retrouvée par NOM, sans tenir compte de la casse ;
+     * si elle n'existe plus (ou n'a jamais existé), elle est créée sur-le-champ
+     * plutôt que de perdre l'envoi — comportement demandé explicitement.
+     */
+    const sendCopy = async (model: Card, schedule: CardSchedule, on: string) => {
+      const wanted = schedule.listName.trim().toLowerCase()
+      let target = listsOfBoard(model.boardId).find(
+        (item) => item.name.trim().toLowerCase() === wanted,
+      )
+
+      if (!target) {
+        target = makeList(
+          model.boardId,
+          schedule.listName.trim() || 'Reçues',
+          positionAtEnd(listsOfBoard(model.boardId).map((item) => item.position)),
+        )
+        await repo.lists.put(target)
+        apply({ lists: upsert(snap().lists, [target]) })
+      }
+
+      const copy = makeCard(
+        model.boardId,
+        target.id,
+        model.title,
+        positionAtEnd(cardsOfList(target.id).map((item) => item.position)),
+      )
+      const next: Card = {
+        ...copy,
+        description: model.description,
+        goalId: model.goalId,
+        contribution: model.contribution,
+        labelIds: [...model.labelIds],
+        dueOn: schedule.setDueDate ? on : null,
+        checklists: model.checklists.map((checklist) => ({
+          ...checklist,
+          id: newId(),
+          items: checklist.items.map((item) => ({ ...item, id: newId(), done: false })),
+        })),
+      }
+      await repo.cards.put(next)
+      apply({ cards: upsert(snap().cards, [next]) })
     }
 
     /** Toutes les mutations de checklists passent par là : relire, transformer, écrire. */
@@ -424,6 +493,94 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = { ...card, doneAt: done ? nowIso() : null, updatedAt: nowIso() }
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
+      },
+
+      duplicateCard: async (id) => {
+        const source = snap().cards.find((item) => item.id === id)
+        if (!source) return undefined
+        const copy = makeCard(
+          source.boardId,
+          source.listId,
+          source.title,
+          positionAtEnd(cardsOfList(source.listId).map((item) => item.position)),
+        )
+        // Tout est repris SAUF : les pièces jointes (les fichiers du bucket ne
+        // sont pas dupliqués), l'état terminé, et la programmation — deux
+        // copies qui s'enverraient toutes seules seraient une surprise.
+        const next: Card = {
+          ...copy,
+          description: source.description,
+          goalId: source.goalId,
+          contribution: source.contribution,
+          labelIds: [...source.labelIds],
+          dueOn: source.dueOn,
+          dueTime: source.dueTime,
+          checklists: source.checklists.map((checklist) => ({
+            ...checklist,
+            id: newId(),
+            items: checklist.items.map((item) => ({ ...item, id: newId(), done: false })),
+          })),
+        }
+        await repo.cards.put(next)
+        apply({ cards: upsert(snap().cards, [next]) })
+        return next
+      },
+
+      setCardSchedule: async (id, schedule) => {
+        const card = snap().cards.find((item) => item.id === id)
+        if (!card) return
+        const next = { ...card, schedule, updatedAt: nowIso() }
+        await repo.cards.put(next)
+        apply({ cards: upsert(snap().cards, [next]) })
+      },
+
+      sendModelNow: async (id) => {
+        const card = snap().cards.find((item) => item.id === id)
+        if (!card?.schedule) return
+        await sendCopy(card, card.schedule, today())
+        const next = {
+          ...card,
+          schedule: { ...card.schedule, lastRunOn: today() },
+          updatedAt: nowIso(),
+        }
+        await repo.cards.put(next)
+        apply({ cards: upsert(snap().cards, [next]) })
+      },
+
+      /**
+       * Balaie les modèles dont la date est venue. Appelé à l'ouverture de
+       * l'application : rien ne tourne en tâche de fond, c'est le seul
+       * rendez-vous possible — même contrainte que pour les rappels.
+       */
+      runDueSchedules: async () => {
+        const day = today()
+        let sent = 0
+        for (const card of snap().cards) {
+          const schedule = card.schedule
+          if (!schedule || card.archivedAt !== null) continue
+          if (!isDue(schedule, day)) continue
+
+          await sendCopy(card, schedule, schedule.nextOn)
+          sent += 1
+
+          // Envoi unique → il s'éteint ; récurrent → on saute à la prochaine
+          // date FUTURE, donc une seule copie même après une longue absence.
+          const nextOn = afterRun(schedule, day)
+          const fresh = snap().cards.find((item) => item.id === card.id) ?? card
+          const next: Card = {
+            ...fresh,
+            schedule: {
+              ...schedule,
+              nextOn: nextOn ?? schedule.nextOn,
+              active: nextOn !== null,
+              lastRunOn: schedule.nextOn,
+            },
+            updatedAt: nowIso(),
+          }
+          await repo.cards.put(next)
+          apply({ cards: upsert(snap().cards, [next]) })
+        }
+        return sent
       },
 
       archiveCard: async (id) => {
@@ -697,6 +854,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
     }
   }, [apply])
+
+  actionsRef.current = actions
 
   /** Les actions exposées sont enrobées : une erreur remonte à l'écran au lieu de disparaître. */
   const guarded = useMemo(() => {
