@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Button, ConfirmButton, Field, IconButton, TextInput, cx } from '../../components/ui'
 import { LABEL_COLOR_HEX, LABEL_COLOR_NAMES, chipStyle, labelColorToHex } from '../../lib/palette'
 import { SignOutButton } from '../auth/AuthGate'
+import { useInstallPrompt } from '../../lib/install'
 import { useStore } from '../../lib/state'
 import { LABEL_COLORS } from '../../lib/types'
 import type { Theme } from '../../lib/theme'
@@ -206,6 +207,9 @@ export function SettingsView({
           </div>
         </section>
 
+        {/* --------------------------------------------------- Application */}
+        <InstallSection />
+
         {/* ------------------------------------------------------- Données */}
         <section className="rounded-xl border border-line bg-surface p-4">
           <h3 className="mb-1 text-sm font-semibold">Données</h3>
@@ -230,6 +234,46 @@ export function SettingsView({
         </section>
       </div>
     </div>
+  )
+}
+
+/**
+ * Installation en application (PWA) : fenêtre dédiée, icône dans la barre des
+ * tâches / l'écran d'accueil. Le bouton n'existe que si le navigateur a émis
+ * `beforeinstallprompt` ; sinon, le mode d'emploi manuel prend le relais.
+ */
+function InstallSection() {
+  const { installed, canPrompt, install } = useInstallPrompt()
+
+  return (
+    <section className="rounded-xl border border-line bg-surface p-4">
+      <h3 className="mb-1 text-sm font-semibold">Application</h3>
+      {installed ? (
+        <p className="text-xs text-muted">
+          ✓ L'application est installée — elle s'ouvre dans sa propre fenêtre, avec son icône.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-muted">
+            Installe le board comme une application : fenêtre dédiée sans barre d'adresse, icône
+            sur le bureau et l'écran d'accueil du téléphone.
+          </p>
+          {canPrompt ? (
+            <Button variant="primary" className="self-start" onClick={() => void install()}>
+              ⤓ Installer l'application
+            </Button>
+          ) : (
+            <p className="rounded-lg bg-surface-2/70 p-3 text-xs text-muted">
+              Le navigateur n'a pas (encore) proposé l'installation. Sur
+              <strong className="text-ink"> Chrome/Edge</strong> : icône d'installation à droite de
+              la barre d'adresse, ou menu ⋮ → « Installer l'application ». Sur
+              <strong className="text-ink"> iPhone/iPad</strong> : Partager →
+              « Sur l'écran d'accueil ».
+            </p>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
