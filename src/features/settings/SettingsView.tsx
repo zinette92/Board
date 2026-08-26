@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Button, ConfirmButton, Field, IconButton, TextInput, cx } from '../../components/ui'
 import { LABEL_COLOR_HEX, LABEL_COLOR_NAMES, chipStyle, labelColorToHex } from '../../lib/palette'
 import { SignOutButton } from '../auth/AuthGate'
+import { gcalStatus } from '../../lib/gcal'
+import type { GcalStatus } from '../../lib/gcal'
 import { useInstallPrompt } from '../../lib/install'
 import { useStore } from '../../lib/state'
 import { LABEL_COLORS } from '../../lib/types'
@@ -210,6 +212,9 @@ export function SettingsView({
         {/* --------------------------------------------------- Application */}
         <InstallSection />
 
+        {/* ------------------------------------------------- Google Agenda */}
+        <GoogleSection />
+
         {/* ------------------------------------------------------- Données */}
         <section className="rounded-xl border border-line bg-surface p-4">
           <h3 className="mb-1 text-sm font-semibold">Données</h3>
@@ -272,6 +277,67 @@ function InstallSection() {
             </p>
           )}
         </div>
+      )}
+    </section>
+  )
+}
+
+/**
+ * État de la connexion Google Agenda. La configuration elle-même vit côté
+ * serveur (variables d'environnement Vercel + partage de l'agenda avec le
+ * compte de service) : cette section ne fait que la diagnostiquer et guider.
+ */
+function GoogleSection() {
+  const [status, setStatus] = useState<GcalStatus | null>(null)
+
+  useEffect(() => {
+    let stale = false
+    void gcalStatus().then((result) => {
+      if (!stale) setStatus(result)
+    })
+    return () => {
+      stale = true
+    }
+  }, [])
+
+  return (
+    <section className="rounded-xl border border-line bg-surface p-4">
+      <h3 className="mb-1 text-sm font-semibold">Google Agenda</h3>
+
+      {status === null ? (
+        <p className="text-xs text-muted">Vérification de la connexion…</p>
+      ) : status.state === 'ok' ? (
+        <p className="text-xs text-muted">
+          ✓ Connecté à <strong className="text-ink">« {status.summary} »</strong> — les événements
+          apparaissent dans le calendrier, et « ＋ Événement Google » écrit directement dedans.
+        </p>
+      ) : status.state === 'not-shared' ? (
+        <div className="flex flex-col gap-2 text-xs text-muted">
+          <p>
+            Le pont fonctionne, mais l'agenda n'est pas encore partagé avec le compte de service.
+            Dans Google Agenda : Paramètres de l'agenda → « Partager avec des personnes » →
+            ajouter cette adresse avec le droit
+            <strong className="text-ink"> « Apporter des modifications aux événements »</strong> :
+          </p>
+          <code className="rounded-lg bg-surface-2/70 p-2 break-all select-all">
+            {status.saEmail}
+          </code>
+        </div>
+      ) : status.state === 'unconfigured' ? (
+        <div className="flex flex-col gap-2 text-xs text-muted">
+          <p>
+            Connexion non configurée. Variables manquantes sur Vercel (Settings → Environment
+            Variables) :
+          </p>
+          <code className="rounded-lg bg-surface-2/70 p-2">{status.missing.join(', ')}</code>
+          <p>
+            Il faut un <strong className="text-ink">compte de service Google</strong> (une clé
+            JSON), l'agenda partagé avec son adresse e-mail, et l'identifiant de l'agenda —
+            « votre-adresse@gmail.com » pour l'agenda principal.
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-danger">Connexion en erreur : {status.message}</p>
       )}
     </section>
   )

@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Button, Pill, cx } from '../../components/ui'
-import { addDays, toDay, today } from '../../lib/dates'
+import { DatePicker } from '../../components/DatePicker'
+import {
+  Button,
+  ConfirmButton,
+  Field,
+  Modal,
+  Pill,
+  Select,
+  TextInput,
+  cx,
+} from '../../components/ui'
+import { addDays, formatFullDay, toDay, today } from '../../lib/dates'
+import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
+import type { GcalEvent } from '../../lib/gcal'
 import { chipStyle } from '../../lib/palette'
 import { isValidated, occurrencesBetween } from '../../lib/reminders'
 import { useStore } from '../../lib/state'
@@ -45,6 +57,50 @@ export function CalendarView({
   useEffect(() => {
     localStorage.setItem(MODE_KEY, mode)
   }, [mode])
+
+  /* ------------------------------------------------------- Google Agenda --
+   * Les événements de la fenêtre affichée, relus à chaque navigation et après
+   * chaque écriture. Pont non configuré → liste vide, le calendrier vit sans.
+   */
+  const [gcalEvents, setGcalEvents] = useState<GcalEvent[]>([])
+  const [gcalError, setGcalError] = useState(false)
+  const [gcalVersion, setGcalVersion] = useState(0)
+  const [editing, setEditing] = useState<GcalEvent | 'new' | null>(null)
+
+  const range = useMemo(() => {
+    if (mode === 'agenda') return { from: addDays(today(), -30), to: addDays(today(), 120) }
+    const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
+    const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)
+    // La grille montre jusqu'à 6 jours des mois voisins.
+    return { from: addDays(toDay(first), -7), to: addDays(toDay(last), 7) }
+  }, [mode, anchor])
+
+  useEffect(() => {
+    let stale = false
+    gcalList(range.from, range.to)
+      .then((events) => {
+        if (stale) return
+        setGcalEvents(events)
+        setGcalError(false)
+      })
+      .catch(() => {
+        if (!stale) setGcalError(true)
+      })
+    return () => {
+      stale = true
+    }
+  }, [range, gcalVersion])
+
+  const gcalByDay = useMemo(() => {
+    const map = new Map<string, GcalEvent[]>()
+    for (const event of gcalEvents) {
+      if (!event.day) continue
+      const list = map.get(event.day) ?? []
+      list.push(event)
+      map.set(event.day, list)
+    }
+    return map
+  }, [gcalEvents])
 
   const cardsByDay = useMemo(() => {
     const map = new Map<string, Card[]>()
@@ -117,6 +173,10 @@ export function CalendarView({
             {mode === 'month' ? monthFormatter.format(anchor) : 'Agenda'}
           </h2>
 
+          <Button size="sm" onClick={() => setEditing('new')}>
+            ＋ Événement Google
+          </Button>
+
           <div className="flex rounded-lg border border-line p-0.5">
             {(
               [
@@ -174,9 +234,11 @@ export function CalendarView({
             cardsByDay={cardsByDay}
             goalsByDay={goalsByDay}
             remindersByDay={remindersByDay}
+            gcalByDay={gcalByDay}
             labelsById={labelsById}
             boardsById={boardsById}
             onOpenCard={onOpenCard}
+            onOpenEvent={setEditing}
           />
         ) : (
           <AgendaList
@@ -184,16 +246,30 @@ export function CalendarView({
             cardsByDay={cardsByDay}
             goalsByDay={goalsByDay}
             remindersByDay={remindersByDay}
+            gcalByDay={gcalByDay}
             labelsById={labelsById}
             boardsById={boardsById}
             onOpenCard={onOpenCard}
+            onOpenEvent={setEditing}
           />
         )}
 
         <p className="text-xs text-muted">
-          Tâches datées, échéances d'objectifs et 🔔 rappels (pré-avis en pointillés). Clique une
-          tâche pour l'ouvrir.
+          Tâches datées, échéances d'objectifs, 🔔 rappels (pré-avis en pointillés) et Ⓖ événements
+          Google. Clique une tâche ou un événement pour l'ouvrir.
+          {gcalError ? ' — Google Agenda injoignable (voir Réglages).' : ''}
         </p>
+
+        {editing !== null ? (
+          <GcalEventModal
+            event={editing === 'new' ? null : editing}
+            onClose={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null)
+              setGcalVersion((version) => version + 1)
+            }}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -211,9 +287,26 @@ type ItemsProps = {
   cardsByDay: Map<string, Card[]>
   goalsByDay: Map<string, Goal[]>
   remindersByDay: Map<string, ReminderHit[]>
+  gcalByDay: Map<string, GcalEvent[]>
   labelsById: Map<ID, Label>
   boardsById: Map<ID, Board>
   onOpenCard: (id: ID) => void
+  onOpenEvent: (event: GcalEvent) => void
+}
+
+/** Puce d'événement Google : cliquer ouvre la fiche de modification. */
+function GcalChip({ event, onOpen }: { event: GcalEvent; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`Google Agenda — ${event.title}${event.time ? ` à ${event.time}` : ''}`}
+      className="truncate rounded border border-accent/50 px-1 py-0.5 text-left text-[11px] font-medium text-accent transition-colors hover:bg-accent/10"
+    >
+      Ⓖ {event.time ? `${event.time} ` : ''}
+      {event.title}
+    </button>
+  )
 }
 
 /**
@@ -297,9 +390,11 @@ function MonthGrid({
   cardsByDay,
   goalsByDay,
   remindersByDay,
+  gcalByDay,
   labelsById,
   boardsById,
   onOpenCard,
+  onOpenEvent,
 }: ItemsProps & { anchor: Date }) {
   const cells = useMemo(() => {
     const daysInMonth = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate()
@@ -348,6 +443,9 @@ function MonthGrid({
               >
                 {date}
               </span>
+              {(gcalByDay.get(day) ?? []).map((event) => (
+                <GcalChip key={event.id} event={event} onOpen={() => onOpenEvent(event)} />
+              ))}
               {(remindersByDay.get(day) ?? []).map((hit) => (
                 <ReminderChip
                   key={`${hit.reminder.id}-${hit.target}-${hit.lead}`}
@@ -383,9 +481,11 @@ function AgendaList({
   cardsByDay,
   goalsByDay,
   remindersByDay,
+  gcalByDay,
   labelsById,
   boardsById,
   onOpenCard,
+  onOpenEvent,
 }: ItemsProps) {
   const todayRef = useRef<HTMLDivElement>(null)
 
@@ -399,13 +499,16 @@ function AgendaList({
     const from = addDays(todayDay, -30)
     const to = addDays(todayDay, 120)
     const set = new Set(
-      [...cardsByDay.keys(), ...goalsByDay.keys(), ...remindersByDay.keys()].filter(
-        (day) => day >= from && day <= to,
-      ),
+      [
+        ...cardsByDay.keys(),
+        ...goalsByDay.keys(),
+        ...remindersByDay.keys(),
+        ...gcalByDay.keys(),
+      ].filter((day) => day >= from && day <= to),
     )
     set.add(todayDay)
     return [...set].sort()
-  }, [cardsByDay, goalsByDay, remindersByDay, todayDay])
+  }, [cardsByDay, goalsByDay, remindersByDay, gcalByDay, todayDay])
 
   useEffect(() => {
     todayRef.current?.scrollIntoView({ block: 'center' })
@@ -423,6 +526,7 @@ function AgendaList({
         const dayGoals = goalsByDay.get(day) ?? []
         const dayCards = cardsByDay.get(day) ?? []
         const dayReminders = remindersByDay.get(day) ?? []
+        const dayEvents = gcalByDay.get(day) ?? []
         return (
           <div key={day} ref={isToday ? todayRef : undefined}>
             {showMonth ? (
@@ -452,6 +556,9 @@ function AgendaList({
                   isToday ? 'border-accent' : 'border-line',
                 )}
               >
+                {dayEvents.map((event) => (
+                  <GcalChip key={event.id} event={event} onOpen={() => onOpenEvent(event)} />
+                ))}
                 {dayReminders.map((hit) => (
                   <ReminderChip
                     key={`${hit.reminder.id}-${hit.target}-${hit.lead}`}
@@ -472,7 +579,10 @@ function AgendaList({
                     onOpen={() => onOpenCard(card.id)}
                   />
                 ))}
-                {dayGoals.length === 0 && dayCards.length === 0 && dayReminders.length === 0 ? (
+                {dayGoals.length === 0 &&
+                dayCards.length === 0 &&
+                dayReminders.length === 0 &&
+                dayEvents.length === 0 ? (
                   <span className="pt-1 text-xs text-muted">Rien de prévu.</span>
                 ) : null}
               </div>
@@ -481,5 +591,171 @@ function AgendaList({
         )
       })}
     </div>
+  )
+}
+
+/* ------------------------------------------------- Fiche événement Google */
+
+const DURATIONS = [
+  [30, '30 min'],
+  [60, '1 h'],
+  [90, '1 h 30'],
+  [120, '2 h'],
+  [180, '3 h'],
+  [240, '4 h'],
+  [480, '8 h'],
+] as const
+
+/** Durée en minutes entre deux « HH:MM » du même jour ; null si incalculable. */
+function spanMinutes(start: string | null, end: string | null): number | null {
+  if (!start || !end) return null
+  const minutes =
+    Number(end.slice(0, 2)) * 60 + Number(end.slice(3, 5)) -
+    (Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5)))
+  return minutes > 0 ? minutes : null
+}
+
+/**
+ * Création / modification / suppression d'un événement, écrit DIRECTEMENT dans
+ * Google Agenda via le pont serveur. Modèle volontairement simple : titre,
+ * jour, heure (ou journée entière), durée.
+ */
+function GcalEventModal({
+  event,
+  onClose,
+  onSaved,
+}: {
+  event: GcalEvent | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [title, setTitle] = useState(event?.title ?? '')
+  const [day, setDay] = useState(event?.day ?? today())
+  const [time, setTime] = useState<string | null>(event ? event.time : '09:00')
+  const [duration, setDuration] = useState(() => {
+    const span = spanMinutes(event?.time ?? null, event?.endTime ?? null)
+    return span && DURATIONS.some(([minutes]) => minutes === span) ? span : 60
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const save = async () => {
+    if (saving) return
+    setSaving(true)
+    setError(null)
+    const draft = { title: title.trim() || '(sans titre)', day, time, durationMin: duration }
+    try {
+      if (event) await gcalUpdate(event.id, draft)
+      else await gcalCreate(draft)
+      onSaved()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      setSaving(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!event || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await gcalDelete(event.id)
+      onSaved()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={event ? 'Événement Google' : 'Nouvel événement Google'}
+      footer={
+        <>
+          {error ? <span className="mr-auto text-xs text-danger">{error}</span> : null}
+          {event ? (
+            <ConfirmButton confirmLabel="Supprimer de Google ?" onConfirm={() => void remove()}>
+              Supprimer
+            </ConfirmButton>
+          ) : null}
+          <Button variant="primary" disabled={saving} onClick={() => void save()}>
+            {saving ? 'Enregistrement…' : 'Enregistrer'}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <Field label="Titre">
+          <TextInput
+            autoFocus
+            value={title}
+            placeholder="Ex. Rendez-vous banque"
+            onChange={(input) => setTitle(input.target.value)}
+            onKeyDown={(input) => {
+              if (input.key === 'Enter') void save()
+            }}
+          />
+        </Field>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <span className="mb-1 block text-[11px] text-muted">Jour</span>
+            <DatePicker
+              day={day}
+              onSelect={(picked) => setDay(picked)}
+              trigger={(toggle) => (
+                <Button size="sm" onClick={toggle}>
+                  📅 {formatFullDay(day)}
+                </Button>
+              )}
+            />
+          </div>
+
+          <label>
+            <span className="mb-1 block text-[11px] text-muted">Heure</span>
+            <Select
+              value={time ?? 'all-day'}
+              className="w-36"
+              onChange={(input) =>
+                setTime(input.target.value === 'all-day' ? null : input.target.value)
+              }
+            >
+              <option value="all-day">Journée entière</option>
+              {Array.from({ length: 24 * 2 }, (_, i) => {
+                const value = `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`
+                return (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                )
+              })}
+            </Select>
+          </label>
+
+          {time !== null ? (
+            <label>
+              <span className="mb-1 block text-[11px] text-muted">Durée</span>
+              <Select
+                value={duration}
+                className="w-28"
+                onChange={(input) => setDuration(Number(input.target.value))}
+              >
+                {DURATIONS.map(([minutes, label]) => (
+                  <option key={minutes} value={minutes}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+        </div>
+
+        <p className="text-xs text-muted">
+          Écrit directement dans ton Google Agenda — visible partout où il est ouvert.
+        </p>
+      </div>
+    </Modal>
   )
 }

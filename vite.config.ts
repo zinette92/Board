@@ -42,5 +42,13 @@ export default defineConfig({
       },
     }),
   ],
-  server: { port: 5180 },
+  server: {
+    port: 5180,
+    // En dev, les fonctions Vercel n'existent pas : on relaie /api vers la
+    // production. Même projet Supabase des deux côtés, le jeton de session
+    // reste donc valide.
+    proxy: {
+      '/api': { target: 'https://perso-board.vercel.app', changeOrigin: true },
+    },
+  },
 })
