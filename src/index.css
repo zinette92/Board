@@ -51,6 +51,17 @@
   --shadow: 0 1px 2px oklch(0 0 0 / 0.3), 0 6px 16px oklch(0 0 0 / 0.28);
 }
 
+/* Police d'affichage des noms de listes — l'équivalent libre le plus proche
+   du « Charlie Display » arrondi de Trello. Auto-hébergée : précachée par la
+   PWA, aucune requête vers Google Fonts à l'exécution. */
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/nunito-700.woff2') format('woff2');
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -64,6 +75,7 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: 'Nunito', 'Segoe UI', system-ui, sans-serif;
 }
 
 html,

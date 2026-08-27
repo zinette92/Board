@@ -26,6 +26,7 @@ import {
 } from '@dnd-kit/sortable'
 
 import { Button, ConfirmButton, Modal, TextInput } from '../../components/ui'
+import { nowIso } from '../../lib/id'
 import { byPosition } from '../../lib/ordering'
 import { useStore } from '../../lib/state'
 import type { Board, Card, ID, Label } from '../../lib/types'
@@ -100,6 +101,65 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
         .sort(byPosition),
     [store.lists, board.id],
   )
+
+  /* ----------------------------------------------- Raccourcis de survol --
+   * C archive la carte sous le curseur, D l'envoie dans la liste « Done »
+   * (créée en fin de tableau si absente), R réduit/rouvre la liste survolée.
+   *
+   * Le survol est résolu à la frappe par elementFromPoint sur la dernière
+   * position connue de la souris : aucun état React, aucun re-rendu, et cela
+   * reste juste après un défilement (coordonnées viewport des deux côtés).
+   */
+  const mouse = useRef({ x: -1, y: -1 })
+  useEffect(() => {
+    const onMove = (event: MouseEvent) => {
+      mouse.current = { x: event.clientX, y: event.clientY }
+    }
+
+    const sendToDone = async (cardId: ID) => {
+      const done =
+        lists.find((list) => !list.isTemplate && list.name.trim().toLowerCase() === 'done') ??
+        (await store.createList(board.id, 'Done'))
+      if (!done) return
+      const card = store.cards.find((item) => item.id === cardId)
+      if (card?.listId === done.id) return
+      await store.moveCard(cardId, done.id, Number.MAX_SAFE_INTEGER)
+    }
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return
+      const key = event.key.toLowerCase()
+      if (key !== 'c' && key !== 'd' && key !== 'r') return
+      // Jamais pendant une saisie : le raccourci mangerait la lettre tapée.
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+
+      const at = document.elementFromPoint(mouse.current.x, mouse.current.y)
+      if (!at) return
+      const cardEl = at.closest('[data-card-id]')
+      const listEl = at.closest('[data-list-id]')
+
+      if (key === 'r' && listEl) {
+        const id = listEl.getAttribute('data-list-id') as ID
+        const list = lists.find((item) => item.id === id)
+        if (list) void store.updateList(id, { collapsed: !list.collapsed })
+        event.preventDefault()
+        return
+      }
+      if (!cardEl) return
+      const id = cardEl.getAttribute('data-card-id') as ID
+      if (key === 'c') void store.updateCard(id, { archivedAt: nowIso() })
+      if (key === 'd') void sendToDone(id)
+      event.preventDefault()
+    }
+
+    window.addEventListener('mousemove', onMove, { passive: true })
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [store, lists, board.id])
 
   const labelsById = useMemo(
     () => new Map(store.labels.map((label) => [label.id, label] as const)),

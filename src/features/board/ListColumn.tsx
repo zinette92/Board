@@ -66,6 +66,7 @@ export function ListColumn({
           sortable.setNodeRef(node)
           setDropRef(node)
         }}
+        data-list-id={list.id}
         style={{
           ...sortStyle,
           ...tint,
@@ -88,7 +89,7 @@ export function ListColumn({
         {/* Pas de `flex-1` ici : dans une colonne à hauteur de contenu, une
             base flex de 0 écraserait le nom à hauteur nulle. Taille naturelle,
             plafonnée avec points de suspension. */}
-        <span className="max-h-64 overflow-hidden text-sm font-semibold text-ellipsis whitespace-nowrap [writing-mode:vertical-rl]">
+        <span className="font-display max-h-64 overflow-hidden text-sm font-bold text-ellipsis whitespace-nowrap [writing-mode:vertical-rl]">
           {list.name}
         </span>
         <span className="text-xs font-medium text-muted tabular-nums [writing-mode:vertical-rl]">
@@ -114,6 +115,8 @@ export function ListColumn({
   return (
     <section
       ref={sortable.setNodeRef}
+      // Cible du raccourci de survol (R réduit / rouvre la liste).
+      data-list-id={list.id}
       style={{
         ...sortStyle,
         ...tint,
@@ -135,7 +138,7 @@ export function ListColumn({
         <InlineEdit
           value={list.name}
           onSubmit={(name) => store.updateList(list.id, { name })}
-          className="min-w-0 flex-1 truncate text-sm font-semibold"
+          className="font-display min-w-0 flex-1 truncate text-sm font-bold"
           placeholder="Nom de la liste"
         />
         <span className="text-xs text-muted tabular-nums">{cards.length}</span>

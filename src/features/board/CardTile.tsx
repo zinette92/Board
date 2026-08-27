@@ -178,6 +178,8 @@ export function CardTile({
   return (
     <div
       ref={setNodeRef}
+      // Cible des raccourcis de survol (C archive, D envoie dans « Done »).
+      data-card-id={card.id}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       // La carte en cours de déplacement reste en place mais s'effface : c'est
       // l'aperçu du DragOverlay qui suit le pointeur.

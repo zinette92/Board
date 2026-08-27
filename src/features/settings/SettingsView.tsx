@@ -215,6 +215,9 @@ export function SettingsView({
         {/* ------------------------------------------------- Google Agenda */}
         <GoogleSection />
 
+        {/* ----------------------------------------------------- Raccourcis */}
+        <ShortcutsSection />
+
         {/* ------------------------------------------------------- Données */}
         <section className="rounded-xl border border-line bg-surface p-4">
           <h3 className="mb-1 text-sm font-semibold">Données</h3>
@@ -278,6 +281,57 @@ function InstallSection() {
           )}
         </div>
       )}
+    </section>
+  )
+}
+
+/** Aide-mémoire des raccourcis clavier — la référence unique, à jour. */
+function ShortcutsSection() {
+  const groups: Array<[string, Array<[string, string]>]> = [
+    [
+      'Tableau — carte survolée par la souris',
+      [
+        ['C', 'Archiver la carte'],
+        ['D', 'Envoyer la carte dans la liste « Done » (créée si absente)'],
+      ],
+    ],
+    ['Tableau — liste survolée par la souris', [['R', 'Réduire ou rouvrir la liste']]],
+    [
+      'Éditeur de description',
+      [
+        ['Ctrl + B', 'Gras'],
+        ['Ctrl + S', 'Barré'],
+        ['Ctrl + U', 'Souligné'],
+        ['Ctrl + P', 'Liste à puces'],
+        ['Ctrl + I', 'Liste numérotée'],
+      ],
+    ],
+  ]
+  return (
+    <section className="rounded-xl border border-line bg-surface p-4">
+      <h3 className="mb-3 text-sm font-semibold">Raccourcis clavier</h3>
+      <div className="flex flex-col gap-3">
+        {groups.map(([title, keys]) => (
+          <div key={title}>
+            <span className="mb-1.5 block text-xs font-semibold tracking-wide text-muted uppercase">
+              {title}
+            </span>
+            <div className="flex flex-col gap-1">
+              {keys.map(([combo, effect]) => (
+                <div key={combo} className="flex items-center gap-2 text-xs">
+                  <kbd className="min-w-14 rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-center font-semibold">
+                    {combo}
+                  </kbd>
+                  <span className="text-muted">{effect}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className="text-xs text-muted">
+          Les raccourcis à une lettre sont inactifs pendant une saisie de texte.
+        </p>
+      </div>
     </section>
   )
 }
