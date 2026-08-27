@@ -292,7 +292,7 @@ function ShortcutsSection() {
       'Tableau — carte survolée par la souris',
       [
         ['C', 'Archiver la carte'],
-        ['D', 'Envoyer la carte dans la liste « Done » (créée si absente)'],
+        ['D', 'Envoyer la carte dans la colonne « DONE » (créée si absente)'],
       ],
     ],
     ['Tableau — liste survolée par la souris', [['R', 'Réduire ou rouvrir la liste']]],

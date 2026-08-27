@@ -119,7 +119,7 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     const sendToDone = async (cardId: ID) => {
       const done =
         lists.find((list) => !list.isTemplate && list.name.trim().toLowerCase() === 'done') ??
-        (await store.createList(board.id, 'Done'))
+        (await store.createList(board.id, 'DONE'))
       if (!done) return
       const card = store.cards.find((item) => item.id === cardId)
       if (card?.listId === done.id) return
