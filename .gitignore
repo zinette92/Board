@@ -11,3 +11,9 @@ deployer.txt
 
 .vercel
 .env*
+
+# Clés de comptes de service Google : des secrets, jamais dans le dépôt.
+# (Le mieux reste de ne pas les poser dans le dossier du projet du tout.)
+*.iam.gserviceaccount.json
+perso-506710-*.json
+english-tool-*.json

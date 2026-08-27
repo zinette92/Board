@@ -165,7 +165,9 @@ export function CalendarView({
       <div
         className={cx(
           'mx-auto flex max-w-6xl flex-col gap-3',
-          hasWallpaper && 'glass-dark rounded-2xl border border-line p-4',
+          // Panneau OPAQUE aux couleurs du thème — même rendu qu'en plein écran,
+          // posé sur la photo. Le verre sombre a été essayé et refusé.
+          hasWallpaper && 'rounded-2xl border border-line bg-bg p-4 shadow-lg',
         )}
       >
         <div className="flex flex-wrap items-center gap-2">

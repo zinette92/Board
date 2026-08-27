@@ -72,7 +72,9 @@ export function GoalsView({
           'mx-auto flex max-w-4xl flex-col gap-4',
           // Panneau en verre par-dessus la photo : la colonne reste centrée,
           // le fond d'écran demeure visible de chaque côté.
-          hasWallpaper && 'glass-dark rounded-2xl border border-line p-4',
+          // Panneau OPAQUE aux couleurs du thème — même rendu qu'en plein écran,
+          // posé sur la photo. Le verre sombre a été essayé et refusé.
+          hasWallpaper && 'rounded-2xl border border-line bg-bg p-4 shadow-lg',
         )}
       >
         <div className="flex flex-wrap items-center gap-2">
