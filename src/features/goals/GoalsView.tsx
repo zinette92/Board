@@ -17,7 +17,6 @@ import {
   addDays,
   daysBetween,
   formatDay,
-  formatDuration,
   formatFullDay,
 } from '../../lib/dates'
 import { DatePicker } from '../../components/DatePicker'
@@ -25,7 +24,6 @@ import { makeMilestone } from '../../lib/create'
 import {
   MILESTONE_LABELS,
   MILESTONE_TONES,
-  PACE_LABELS,
   PACE_TONES,
   formatAmount,
   formatWithUnit,
@@ -43,6 +41,11 @@ import {
 } from '../../lib/types'
 import type { Card, Goal, GoalCategory, GoalPeriod, ID } from '../../lib/types'
 
+/** « 29 jours » : le user préfère les jours secs aux semaines converties. */
+function days(count: number): string {
+  return `${count} jour${count > 1 ? 's' : ''}`
+}
+
 export function GoalsView({
   onOpenCard,
   hasWallpaper,
@@ -53,6 +56,8 @@ export function GoalsView({
   const store = useStore()
   const [editing, setEditing] = useState<ID | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  /** Menu contextuel (clic droit sur une carte) : quel objectif, où. */
+  const [menu, setMenu] = useState<{ goalId: ID; x: number; y: number } | null>(null)
   const [period, setPeriod] = useState<GoalPeriod>(() => {
     const saved = localStorage.getItem('perso-board:goals-period')
     return (GOAL_PERIODS as readonly string[]).includes(saved ?? '')
@@ -208,6 +213,7 @@ export function GoalsView({
                     goal={goal}
                     cards={cards}
                     onEdit={() => setEditing(goal.id)}
+                    onMenu={(x, y) => setMenu({ goalId: goal.id, x, y })}
                     onOpenCard={onOpenCard}
                   />
                 ))
@@ -248,6 +254,15 @@ export function GoalsView({
       </div>
 
       {editing ? <GoalEditor goalId={editing} onClose={() => setEditing(null)} /> : null}
+      {menu ? (
+        <GoalContextMenu
+          goalId={menu.goalId}
+          x={menu.x}
+          y={menu.y}
+          cards={cards}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -256,11 +271,13 @@ function GoalRow({
   goal,
   cards,
   onEdit,
+  onMenu,
   onOpenCard,
 }: {
   goal: Goal
   cards: Card[]
   onEdit: () => void
+  onMenu: (x: number, y: number) => void
   onOpenCard: (id: ID) => void
 }) {
   const progress = goalProgress(goal, cards)
@@ -277,6 +294,10 @@ function GoalRow({
     // (tâches rattachées) coupent la propagation.
     <article
       onClick={onEdit}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        onMenu(event.clientX, event.clientY)
+      }}
       className={cx(
         'cursor-pointer rounded-xl border border-line bg-surface p-4 shadow-sm transition-colors hover:border-accent/50',
         goal.status === 'archived' && 'opacity-60',
@@ -294,15 +315,11 @@ function GoalRow({
             >
               {GOAL_CATEGORY_LABELS[goal.category]}
             </Pill>
-            <Pill tone={PACE_TONES[progress.pace]}>{PACE_LABELS[progress.pace]}</Pill>
             {goal.status === 'paused' ? <Pill tone="muted">en pause</Pill> : null}
             {missing.length === 0 ? (
               <Pill tone="ok">SMART complet</Pill>
             ) : (
-              <Pill tone="warn">
-                {criteria.length - missing.length}/5 critères — manque{' '}
-                {missing.map((criterion) => criterion.key).join(', ')}
-              </Pill>
+              <Pill tone="warn">{criteria.length - missing.length}/5 critères</Pill>
             )}
           </div>
           <h3 className="text-base font-semibold">
@@ -326,32 +343,13 @@ function GoalRow({
               d'accorder un adjectif avec un nom qui change (jour, semaine, mois). */}
           <span className="text-xs text-muted">
             {progress.daysLeft >= 0
-              ? `reste ${formatDuration(progress.daysLeft)} · échéance ${formatFullDay(goal.dueOn)}`
-              : `échéance dépassée depuis ${formatDuration(-progress.daysLeft)} (${formatFullDay(goal.dueOn)})`}
+              ? `reste ${days(progress.daysLeft)} · échéance ${formatFullDay(goal.dueOn)}`
+              : `échéance dépassée depuis ${days(-progress.daysLeft)} (${formatFullDay(goal.dueOn)})`}
           </span>
         </div>
         <ProgressBar ratio={progress.ratio} tone={barTone} marker={progress.timeRatio} />
-        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-          <span>
-            {Math.round(progress.ratio * 100)} % fait · {Math.round(progress.timeRatio * 100)} % du
-            temps écoulé
-          </span>
-          <span>
-            {formatAmount(progress.fromCards)} via {progress.linkedDone}/{progress.linked} tâche(s)
-            terminée(s)
-          </span>
-          {progress.manual > 0 ? <span>{formatAmount(progress.manual)} hors outil</span> : null}
-          {progress.remaining > 0 && progress.daysLeft > 0 ? (
-            <span>
-              rythme requis : {formatWithUnit(progress.perWeekNeeded, goal.unit)} / semaine
-            </span>
-          ) : null}
-          {progress.expected !== null ? (
-            <span>
-              attendu à ce stade : {formatWithUnit(progress.expected, goal.unit)}
-            </span>
-          ) : null}
-        </div>
+        {/* Une seule stat : le % fait — le reste doublonnait la jauge et le compte. */}
+        <div className="mt-1.5 text-xs text-muted">{Math.round(progress.ratio * 100)} % fait</div>
       </div>
 
       {progress.milestones.length > 0 ? (
@@ -366,8 +364,8 @@ function GoalRow({
                 <strong className="text-ink">
                   {formatWithUnit(progress.nextMilestone.milestone.target, goal.unit)}
                 </strong>{' '}
-                le {formatFullDay(progress.nextMilestone.milestone.dueOn)} (
-                {formatDuration(progress.nextMilestone.daysLeft)})
+                le {formatFullDay(progress.nextMilestone.milestone.dueOn)} (dans{' '}
+                {days(progress.nextMilestone.daysLeft)})
               </span>
             ) : null}
           </div>
@@ -446,6 +444,116 @@ function GoalRow({
         </details>
       ) : null}
     </article>
+  )
+}
+
+/**
+ * Clic droit sur une carte d'objectif : les trois gestes de la revue de
+ * période — valider, reporter, supprimer — sans ouvrir la fiche.
+ */
+function GoalContextMenu({
+  goalId,
+  x,
+  y,
+  cards,
+  onClose,
+}: {
+  goalId: ID
+  x: number
+  y: number
+  cards: Card[]
+  onClose: () => void
+}) {
+  const store = useStore()
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const goal = store.goals.find((item) => item.id === goalId)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  if (!goal) return null
+  const progress = goalProgress(goal, cards)
+  const reached = progress.ratio >= 1
+
+  /** Valider = déclarer la cible atteinte : la part manuelle comble l'écart. */
+  const validate = async () => {
+    onClose()
+    if (goal.target > 0) {
+      await store.updateGoal(goal.id, {
+        manualProgress: Math.max(0, goal.target - progress.fromCards),
+      })
+    } else {
+      // Objectif sans mesure chiffrée : on le rend binaire, 1 sur 1.
+      await store.updateGoal(goal.id, { target: 1, manualProgress: 1 })
+    }
+  }
+
+  /** Reporter : la même logique que la fiche — une période plus tard. */
+  const report = async () => {
+    onClose()
+    const defaultEnd = periodWindowAt(goal.period, 0, goal.dueOn).to
+    const next = periodWindowAt(goal.period, 1, goal.dueOn)
+    await store.updateGoal(
+      goal.id,
+      goal.dueOn === defaultEnd
+        ? { startsOn: next.from, dueOn: next.to }
+        : { dueOn: shiftOnePeriod(goal.period, goal.dueOn) },
+    )
+  }
+
+  const remove = async () => {
+    onClose()
+    await store.deleteGoal(goal.id)
+  }
+
+  return (
+    <>
+      {/* Voile transparent : un clic hors du menu le referme. */}
+      <div
+        className="fixed inset-0 z-40"
+        onMouseDown={onClose}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        className="fixed z-50 flex w-52 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl"
+        style={{
+          left: Math.min(x, globalThis.innerWidth - 220),
+          top: Math.min(y, globalThis.innerHeight - 150),
+        }}
+      >
+        <Button
+          size="sm"
+          variant="ghost"
+          className="justify-start"
+          disabled={reached}
+          onClick={() => void validate()}
+        >
+          ✓ {reached ? 'Déjà atteint' : 'Valider'}
+        </Button>
+        <Button size="sm" variant="ghost" className="justify-start" onClick={() => void report()}>
+          ↷ Reporter
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={cx('justify-start', confirmDelete ? 'text-danger' : '')}
+          onClick={() => {
+            if (confirmDelete) void remove()
+            else setConfirmDelete(true)
+          }}
+        >
+          🗑 {confirmDelete ? 'Supprimer pour de bon ?' : 'Supprimer'}
+        </Button>
+      </div>
+    </>
   )
 }
 
