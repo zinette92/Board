@@ -92,6 +92,7 @@ type GoalRow = {
   due_on: string
   milestones: GoalMilestone[]
   category: GoalCategory
+  period: string
   status: GoalStatus
   position: number
   created_at: string
@@ -232,6 +233,8 @@ const goal = {
     dueOn: r.due_on,
     milestones: r.milestones ?? [],
     category: r.category,
+    // Colonne ajoutée après coup : les lignes d'avant valent « mensuel ».
+    period: (r.period as Goal['period']) ?? 'monthly',
     status: r.status,
     position: r.position,
     createdAt: r.created_at,
@@ -251,6 +254,7 @@ const goal = {
     due_on: g.dueOn,
     milestones: g.milestones,
     category: g.category,
+    period: g.period,
     status: g.status,
     position: g.position,
     created_at: g.createdAt,

@@ -28,6 +28,7 @@ import {
 import { addDays, today } from './dates'
 import { afterRun, isDue } from './models'
 import { newId, nowIso } from './id'
+import { periodWindow } from './periods'
 import { prepareWallpaper } from './image'
 import {
   byPosition,
@@ -48,6 +49,7 @@ import type {
   ChecklistItem,
   Goal,
   GoalCategory,
+  GoalPeriod,
   ID,
   Label,
   List,
@@ -136,7 +138,7 @@ export type Store = {
   deleteLabel: (id: ID) => Promise<void>
   toggleCardLabel: (cardId: ID, labelId: ID) => Promise<void>
 
-  createGoal: (category: GoalCategory) => Promise<Goal | undefined>
+  createGoal: (category: GoalCategory, period?: GoalPeriod) => Promise<Goal | undefined>
   updateGoal: (id: ID, patch: Partial<Goal>) => Promise<void>
   deleteGoal: (id: ID) => Promise<void>
 
@@ -709,8 +711,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* --------------------------------------------------------------- Objectifs */
-      createGoal: async (category) => {
-        const goal = makeGoal(category, positionAtEnd(snap().goals.map((item) => item.position)))
+      createGoal: async (category, period = 'monthly') => {
+        // L'objectif naît calé sur la fenêtre de sa période : bornes T déjà justes.
+        const window = periodWindow(period)
+        const goal = makeGoal(category, positionAtEnd(snap().goals.map((item) => item.position)), {
+          period,
+          startsOn: window.from,
+          dueOn: window.to,
+        })
         await repo.goals.put(goal)
         apply({ goals: upsert(snap().goals, [goal]) })
         return goal

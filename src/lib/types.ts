@@ -152,6 +152,17 @@ export const GOAL_CATEGORY_LABELS: Record<GoalCategory, string> = {
   personal: 'Personnel',
 }
 
+/** Horizon d'un objectif — 3 objectifs max par domaine et par période. */
+export const GOAL_PERIODS = ['weekly', 'monthly', 'quarter', 'yearly'] as const
+export type GoalPeriod = (typeof GOAL_PERIODS)[number]
+
+export const GOAL_PERIOD_LABELS: Record<GoalPeriod, string> = {
+  weekly: 'Hebdo',
+  monthly: 'Mensuel',
+  quarter: '90 jours',
+  yearly: 'Annuel',
+}
+
 export type GoalStatus = 'active' | 'paused' | 'archived'
 
 /**
@@ -195,6 +206,7 @@ export type Goal = {
   /** Paliers intermédiaires, triés par date. */
   milestones: GoalMilestone[]
   category: GoalCategory
+  period: GoalPeriod
   status: GoalStatus
   position: number
   createdAt: string

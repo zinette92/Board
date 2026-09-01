@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import {
@@ -36,8 +36,14 @@ import {
 } from '../../lib/goals'
 import { CATEGORY_COLORS } from '../../lib/palette'
 import { useStore } from '../../lib/state'
-import { GOAL_CATEGORIES, GOAL_CATEGORY_LABELS } from '../../lib/types'
-import type { Card, Goal, GoalCategory, ID } from '../../lib/types'
+import { periodWindow } from '../../lib/periods'
+import {
+  GOAL_CATEGORIES,
+  GOAL_CATEGORY_LABELS,
+  GOAL_PERIODS,
+  GOAL_PERIOD_LABELS,
+} from '../../lib/types'
+import type { Card, Goal, GoalCategory, GoalPeriod, ID } from '../../lib/types'
 
 export function GoalsView({
   onOpenCard,
@@ -49,19 +55,36 @@ export function GoalsView({
   const store = useStore()
   const [editing, setEditing] = useState<ID | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [period, setPeriod] = useState<GoalPeriod>(() => {
+    const saved = localStorage.getItem('perso-board:goals-period')
+    return (GOAL_PERIODS as readonly string[]).includes(saved ?? '')
+      ? (saved as GoalPeriod)
+      : 'monthly'
+  })
 
-  const goals = useMemo(
-    () =>
-      store.goals
-        .filter((goal) => (showArchived ? true : goal.status !== 'archived'))
-        .sort((a, b) => a.position - b.position),
-    [store.goals, showArchived],
-  )
+  useEffect(() => {
+    localStorage.setItem('perso-board:goals-period', period)
+  }, [period])
 
   const cards = useMemo(() => store.cards.filter((card) => card.archivedAt === null), [store.cards])
 
+  /** Les objectifs de la période affichée, rangés par domaine. */
+  const byCategory = useMemo(() => {
+    const map = new Map<GoalCategory, Goal[]>()
+    for (const category of GOAL_CATEGORIES) map.set(category, [])
+    for (const goal of store.goals) {
+      if (goal.period !== period) continue
+      if (!showArchived && goal.status === 'archived') continue
+      map.get(goal.category)?.push(goal)
+    }
+    for (const list of map.values()) list.sort((a, b) => a.position - b.position)
+    return map
+  }, [store.goals, period, showArchived])
+
+  const window = periodWindow(period)
+
   const create = async (category: GoalCategory) => {
-    const goal = await store.createGoal(category)
+    const goal = await store.createGoal(category, period)
     if (goal) setEditing(goal.id)
   }
 
@@ -88,29 +111,74 @@ export function GoalsView({
               Archivés
             </Button>
           ) : null}
-          {GOAL_CATEGORIES.map((category) => (
-            <Button key={category} size="sm" onClick={() => void create(category)}>
-              + {GOAL_CATEGORY_LABELS[category]}
-            </Button>
-          ))}
+          <div className="flex rounded-lg border border-line p-0.5">
+            {GOAL_PERIODS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setPeriod(value)}
+                className={cx(
+                  'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                  period === value ? 'bg-accent text-accent-ink' : 'text-muted hover:text-ink',
+                )}
+              >
+                {GOAL_PERIOD_LABELS[value]}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {goals.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">
-            Aucun objectif. Crée-en un, puis rattache tes tâches : leur achèvement fera avancer la
-            mesure tout seul.
-          </p>
-        ) : (
-          goals.map((goal) => (
-            <GoalRow
-              key={goal.id}
-              goal={goal}
-              cards={cards}
-              onEdit={() => setEditing(goal.id)}
-              onOpenCard={onOpenCard}
-            />
-          ))
-        )}
+        <p className="text-xs text-muted">
+          {GOAL_PERIOD_LABELS[period]} — du {formatFullDay(window.from)} au{' '}
+          {formatFullDay(window.to)}. 3 objectifs par domaine, pas un de plus : choisir, c'est
+          renoncer.
+        </p>
+
+        {GOAL_CATEGORIES.map((category) => {
+          const sectionGoals = byCategory.get(category) ?? []
+          const activeCount = sectionGoals.filter((goal) => goal.status !== 'archived').length
+          return (
+            <section key={category} className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className="size-2.5 rounded-full"
+                  style={{ backgroundColor: CATEGORY_COLORS[category] }}
+                />
+                <h3 className="font-display text-sm font-bold">
+                  {GOAL_CATEGORY_LABELS[category]}
+                </h3>
+                <span className="text-xs text-muted tabular-nums">{activeCount}/3</span>
+                {activeCount < 3 ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto"
+                    onClick={() => void create(category)}
+                  >
+                    + Objectif
+                  </Button>
+                ) : null}
+              </div>
+              {sectionGoals.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-line p-4 text-center text-xs text-muted">
+                  Aucun objectif {GOAL_PERIOD_LABELS[period].toLowerCase()} en{' '}
+                  {GOAL_CATEGORY_LABELS[category]}.
+                </p>
+              ) : (
+                sectionGoals.map((goal) => (
+                  <GoalRow
+                    key={goal.id}
+                    goal={goal}
+                    cards={cards}
+                    onEdit={() => setEditing(goal.id)}
+                    onOpenCard={onOpenCard}
+                  />
+                ))
+              )}
+            </section>
+          )
+        })}
       </div>
 
       {editing ? <GoalEditor goalId={editing} onClose={() => setEditing(null)} /> : null}
@@ -356,6 +424,7 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
       // Triés à l'enregistrement : l'affichage n'a plus à s'en soucier.
       milestones: [...draft.milestones].sort((a, b) => a.dueOn.localeCompare(b.dueOn)),
       category: draft.category,
+      period: draft.period,
       status: draft.status,
     })
     onClose()
@@ -414,18 +483,32 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
               onChange={(event) => set('specific', event.target.value)}
             />
           </Field>
-          <Field label="Domaine">
-            <Select
-              value={draft.category}
-              onChange={(event) => set('category', event.target.value as GoalCategory)}
-            >
-              {GOAL_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {GOAL_CATEGORY_LABELS[category]}
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Domaine">
+              <Select
+                value={draft.category}
+                onChange={(event) => set('category', event.target.value as GoalCategory)}
+              >
+                {GOAL_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {GOAL_CATEGORY_LABELS[category]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Période" hint="3 objectifs max par domaine et par période.">
+              <Select
+                value={draft.period}
+                onChange={(event) => set('period', event.target.value as GoalPeriod)}
+              >
+                {GOAL_PERIODS.map((value) => (
+                  <option key={value} value={value}>
+                    {GOAL_PERIOD_LABELS[value]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
         </Criterion>
 
         <Criterion letter="M" name="Mesurable" done={criteria[1].filled}>

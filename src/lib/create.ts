@@ -114,6 +114,7 @@ export function makeGoal(
     dueOn: endOfMonth(start),
     milestones: [],
     category,
+    period: 'monthly',
     status: 'active',
     position,
     createdAt: at,
