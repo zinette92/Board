@@ -20,6 +20,31 @@ export function periodWindow(period: GoalPeriod, day = today()): { from: string;
  * l'historique navigable : chaque semaine, mois, cycle ou année garde ses
  * objectifs, retrouvés en feuilletant — rien n'est copié ni archivé à part.
  */
+/**
+ * `day` décalé d'une période exactement — pour reporter une échéance précise.
+ * Le mensuel garde le quantième (31 → dernier jour du mois suivant), l'annuel
+ * gère le 29 février.
+ */
+export function shiftOnePeriod(period: GoalPeriod, day: string): string {
+  const date = parseDay(day)
+  switch (period) {
+    case 'weekly':
+      return addDays(day, 7)
+    case 'monthly': {
+      const lastOfNext = new Date(date.getFullYear(), date.getMonth() + 2, 0).getDate()
+      return toDay(
+        new Date(date.getFullYear(), date.getMonth() + 1, Math.min(date.getDate(), lastOfNext)),
+      )
+    }
+    case 'quarter':
+      return addDays(day, 90)
+    case 'yearly': {
+      const leap = date.getMonth() === 1 && date.getDate() === 29
+      return toDay(new Date(date.getFullYear() + 1, date.getMonth(), leap ? 28 : date.getDate()))
+    }
+  }
+}
+
 export function periodWindowAt(
   period: GoalPeriod,
   offset: number,

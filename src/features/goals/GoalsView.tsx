@@ -9,7 +9,6 @@ import {
   Modal,
   Pill,
   ProgressBar,
-  Select,
   TextArea,
   TextInput,
   cx,
@@ -20,7 +19,6 @@ import {
   formatDay,
   formatDuration,
   formatFullDay,
-  today,
 } from '../../lib/dates'
 import { DatePicker } from '../../components/DatePicker'
 import { makeMilestone } from '../../lib/create'
@@ -36,7 +34,7 @@ import {
 } from '../../lib/goals'
 import { CATEGORY_COLORS } from '../../lib/palette'
 import { useStore } from '../../lib/state'
-import { periodWindowAt } from '../../lib/periods'
+import { QUARTER_ANCHOR, periodWindowAt, shiftOnePeriod } from '../../lib/periods'
 import {
   GOAL_CATEGORIES,
   GOAL_CATEGORY_LABELS,
@@ -51,6 +49,50 @@ const RANGE_FULL = new Intl.DateTimeFormat('fr-FR', {
   year: 'numeric',
 })
 const RANGE_SHORT = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' })
+
+/** Numéro ISO de la semaine d'un jour, et le total de semaines de son année ISO. */
+function isoWeekOf(day: string): { week: number; total: number } {
+  const at = (input: string) => {
+    const date = new Date(input + 'T12:00:00Z')
+    // Le jeudi de la semaine porte l'année ISO.
+    date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7) + 3)
+    const jan4 = new Date(Date.UTC(date.getUTCFullYear(), 0, 4))
+    jan4.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7) + 3)
+    return {
+      year: date.getUTCFullYear(),
+      week: 1 + Math.round((date.getTime() - jan4.getTime()) / 604_800_000),
+    }
+  }
+  const current = at(day)
+  // Le 28 décembre appartient toujours à la dernière semaine ISO de l'année.
+  return { week: current.week, total: at(`${current.year}-12-28`).week }
+}
+
+/**
+ * Position de la fenêtre dans son année : 40/52, 9/12, 3/4. Les cycles de
+ * 90 jours sont numérotés par groupes de 4 depuis l'ancre. L'année n'a pas de
+ * position (1/1) : null.
+ */
+function periodPosition(period: GoalPeriod, from: string): string | null {
+  switch (period) {
+    case 'weekly': {
+      const { week, total } = isoWeekOf(from)
+      return `${week}/${total}`
+    }
+    case 'monthly':
+      return `${Number(from.slice(5, 7))}/12`
+    case 'quarter': {
+      const elapsed = Math.round(
+        (new Date(from + 'T12:00:00Z').getTime() - new Date(QUARTER_ANCHOR + 'T12:00:00Z').getTime()) /
+          86_400_000,
+      )
+      const cycle = Math.round(elapsed / 90)
+      return `${((cycle % 4) + 4) % 4 + 1}/4`
+    }
+    case 'yearly':
+      return null
+  }
+}
 
 /** « du 1 au 30 septembre 2026 », étendu quand le mois ou l'année changent. */
 function formatRange(from: string, to: string): string {
@@ -159,17 +201,10 @@ export function GoalsView({
           </div>
         </div>
 
-        {/* La fenêtre affichée, feuilletable : c'est ici que vit l'historique. */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => setOffset(offset - 1)} aria-label="Période précédente">
-            ‹
-          </Button>
           <span className="font-display text-base font-bold text-accent">
             {formatRange(window.from, window.to)}
           </span>
-          <Button size="sm" onClick={() => setOffset(offset + 1)} aria-label="Période suivante">
-            ›
-          </Button>
           {offset !== 0 ? (
             <>
               <Pill tone={offset < 0 ? 'muted' : 'accent'}>
@@ -227,6 +262,36 @@ export function GoalsView({
             </section>
           )
         })}
+
+        {/* Le feuilletage vit en bas, discret : ‹ position dans l'année ›. */}
+        <div className="flex items-center justify-center gap-2 pt-1">
+          <button
+            type="button"
+            aria-label="Période précédente"
+            onClick={() => setOffset(offset - 1)}
+            className="px-1 text-sm text-muted transition-colors hover:text-ink"
+          >
+            ‹
+          </button>
+          {periodPosition(period, window.from) ? (
+            <button
+              type="button"
+              title="Revenir à la période en cours"
+              onClick={() => setOffset(0)}
+              className="text-xs text-muted tabular-nums transition-colors hover:text-ink"
+            >
+              {periodPosition(period, window.from)}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Période suivante"
+            onClick={() => setOffset(offset + 1)}
+            className="px-1 text-sm text-muted transition-colors hover:text-ink"
+          >
+            ›
+          </button>
+        </div>
       </div>
 
       {editing ? <GoalEditor goalId={editing} onClose={() => setEditing(null)} /> : null}
@@ -448,6 +513,14 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
   const store = useStore()
   const goal = store.goals.find((item) => item.id === goalId)
   const [draft, setDraft] = useState<Goal | undefined>(goal)
+  /**
+   * Échéance par défaut = la fin de la fenêtre de période ; la case à cocher
+   * révèle un vrai choix de date. État local et non dérivé : cocher la case
+   * sans encore changer la date ne doit pas la re-décocher.
+   */
+  const [precise, setPrecise] = useState(() =>
+    goal ? goal.dueOn !== periodWindowAt(goal.period, 0, goal.dueOn).to : false,
+  )
 
   if (!goal || !draft) return null
 
@@ -455,15 +528,11 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
     setDraft({ ...draft, [key]: value })
 
   const criteria = smartCriteria(draft)
-  const filled = criteria.filter((criterion) => criterion.filled).length
 
-  const save = async () => {
+  const persist = async (patch: Partial<Goal> = {}) => {
     await store.updateGoal(goalId, {
       title: draft.title,
-      specific: draft.specific,
-      metric: draft.metric,
       target: draft.target,
-      unit: draft.unit,
       manualProgress: draft.manualProgress,
       achievable: draft.achievable,
       relevant: draft.relevant,
@@ -471,11 +540,25 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
       dueOn: draft.dueOn,
       // Triés à l'enregistrement : l'affichage n'a plus à s'en soucier.
       milestones: [...draft.milestones].sort((a, b) => a.dueOn.localeCompare(b.dueOn)),
-      category: draft.category,
-      period: draft.period,
-      status: draft.status,
+      ...patch,
     })
     onClose()
+  }
+
+  const save = () => persist()
+
+  /**
+   * Report : l'objectif glisse d'UNE période — semaine → semaine suivante,
+   * mois → mois suivant… Échéance par défaut → fin de la fenêtre suivante ;
+   * date précise → décalée d'exactement une période.
+   */
+  const report = () => {
+    const next = periodWindowAt(draft.period, 1, draft.dueOn)
+    return persist(
+      precise
+        ? { dueOn: shiftOnePeriod(draft.period, draft.dueOn) }
+        : { startsOn: next.from, dueOn: next.to },
+    )
   }
 
   return (
@@ -483,14 +566,25 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
       open
       wide
       onClose={onClose}
-      title={
-        <div className="flex items-center gap-2">
-          <span>Objectif</span>
-          <Pill tone={filled === 5 ? 'ok' : 'warn'}>{filled}/5 critères SMART</Pill>
-        </div>
-      }
+      title="Objectif"
       footer={
         <>
+          <Button
+            className="mr-auto"
+            title="Reporter d'une période : semaine → semaine suivante, mois → mois suivant…"
+            onClick={() => void report()}
+          >
+            ↷ Reporter
+          </Button>
+          {draft.status !== 'archived' ? (
+            <Button variant="ghost" onClick={() => void persist({ status: 'archived' })}>
+              Archiver
+            </Button>
+          ) : (
+            <Button variant="ghost" onClick={() => void persist({ status: 'active' })}>
+              Désarchiver
+            </Button>
+          )}
           <ConfirmButton
             size="md"
             onConfirm={() => {
@@ -520,54 +614,10 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
               onChange={(event) => set('title', event.target.value)}
             />
           </Field>
-          <Field
-            label="Précision"
-            hint="Ce qu'on doit pouvoir constater sans discussion possible."
-          >
-            <TextArea
-              rows={2}
-              value={draft.specific}
-              placeholder="Ex. Trois contrats signés sur l'offre services aux restaurateurs."
-              onChange={(event) => set('specific', event.target.value)}
-            />
-          </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Domaine">
-              <Select
-                value={draft.category}
-                onChange={(event) => set('category', event.target.value as GoalCategory)}
-              >
-                {GOAL_CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {GOAL_CATEGORY_LABELS[category]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Période" hint="3 objectifs max par domaine et par période.">
-              <Select
-                value={draft.period}
-                onChange={(event) => set('period', event.target.value as GoalPeriod)}
-              >
-                {GOAL_PERIODS.map((value) => (
-                  <option key={value} value={value}>
-                    {GOAL_PERIOD_LABELS[value]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
         </Criterion>
 
         <Criterion letter="M" name="Mesurable" done={criteria[1].filled}>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Ce que je compte">
-              <TextInput
-                value={draft.metric}
-                placeholder="contrats signés"
-                onChange={(event) => set('metric', event.target.value)}
-              />
-            </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Cible">
               <TextInput
                 type="number"
@@ -577,27 +627,19 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
                 onChange={(event) => set('target', Number(event.target.value) || 0)}
               />
             </Field>
-            <Field label="Unité">
+            <Field
+              label="Déjà acquis"
+              hint="Le reste avance tout seul avec les tâches terminées."
+            >
               <TextInput
-                value={draft.unit}
-                placeholder="contrats"
-                onChange={(event) => set('unit', event.target.value)}
+                type="number"
+                step="any"
+                min={0}
+                value={draft.manualProgress}
+                onChange={(event) => set('manualProgress', Number(event.target.value) || 0)}
               />
             </Field>
           </div>
-          <Field
-            label="Déjà acquis hors de l'outil"
-            hint="Le reste de l'avancement se calcule tout seul à partir des tâches terminées — ne le saisis pas ici."
-          >
-            <TextInput
-              type="number"
-              step="any"
-              min={0}
-              value={draft.manualProgress}
-              className="w-32"
-              onChange={(event) => set('manualProgress', Number(event.target.value) || 0)}
-            />
-          </Field>
         </Criterion>
 
         <Criterion letter="A" name="Atteignable" done={criteria[2].filled}>
@@ -623,24 +665,37 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
         </Criterion>
 
         <Criterion letter="T" name="Temporel" done={criteria[4].filled}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Début">
-              <TextInput
-                type="date"
-                value={draft.startsOn}
-                onChange={(event) => set('startsOn', event.target.value || today())}
-              />
-            </Field>
-            <Field label="Échéance">
-              <TextInput
-                type="date"
-                value={draft.dueOn}
-                onChange={(event) => set('dueOn', event.target.value || today())}
-              />
-            </Field>
-          </div>
-          {!criteria[4].filled && draft.startsOn && draft.dueOn ? (
-            <p className="text-xs text-danger">L'échéance doit être postérieure au début.</p>
+          <p className="text-sm">
+            Échéance : <strong>{formatFullDay(draft.dueOn)}</strong>
+            {precise ? '' : <span className="text-muted"> — fin de la période, par défaut.</span>}
+          </p>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="size-4 accent-[var(--accent)]"
+              checked={precise}
+              onChange={(event) => {
+                if (event.target.checked) {
+                  setPrecise(true)
+                  return
+                }
+                setPrecise(false)
+                // Retour au défaut : la fin de la fenêtre contenant l'échéance.
+                set('dueOn', periodWindowAt(draft.period, 0, draft.dueOn).to)
+              }}
+            />
+            <span className="text-xs text-muted">Définir une date précise</span>
+          </label>
+          {precise ? (
+            <DatePicker
+              day={draft.dueOn}
+              onSelect={(day) => set('dueOn', day)}
+              trigger={(toggle) => (
+                <Button size="sm" className="self-start" onClick={toggle}>
+                  📅 {formatFullDay(draft.dueOn)}
+                </Button>
+              )}
+            />
           ) : null}
         </Criterion>
 
@@ -648,17 +703,6 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
           goal={draft}
           onChange={(milestones) => setDraft({ ...draft, milestones })}
         />
-
-        <Field label="État">
-          <Select
-            value={draft.status}
-            onChange={(event) => set('status', event.target.value as Goal['status'])}
-          >
-            <option value="active">Actif</option>
-            <option value="paused">En pause</option>
-            <option value="archived">Archivé</option>
-          </Select>
-        </Field>
       </div>
     </Modal>
   )

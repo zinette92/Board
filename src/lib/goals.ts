@@ -30,13 +30,17 @@ export function smartCriteria(goal: Goal): SmartCriterion[] {
       key: 'S',
       name: 'Spécifique',
       hint: 'Décris précisément ce que tu veux obtenir.',
-      filled: goal.title.trim().length > 0 && goal.specific.trim().length > 0,
+      // La « précision » a quitté la fiche (simplification du 01/09) :
+      // l'intitulé seul juge le S. Le champ reste dans le modèle.
+      filled: goal.title.trim().length > 0,
     },
     {
       key: 'M',
       name: 'Mesurable',
       hint: 'Indique ce que tu comptes, et la cible à atteindre.',
-      filled: goal.metric.trim().length > 0 && goal.target > 0,
+      // Même simplification : « ce que je compte » et l'unité ont quitté la
+      // fiche, seule la cible juge le M.
+      filled: goal.target > 0,
     },
     {
       key: 'A',
