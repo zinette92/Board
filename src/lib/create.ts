@@ -133,6 +133,7 @@ export function makeReminder(title = ''): Reminder {
     id: newId(),
     title,
     note: '',
+    domain: 'personal',
     labelIds: [],
     startsOn: today(),
     at: '09:00',

@@ -34,7 +34,7 @@ import {
 } from '../../lib/goals'
 import { CATEGORY_COLORS } from '../../lib/palette'
 import { useStore } from '../../lib/state'
-import { periodWindowAt, shiftOnePeriod } from '../../lib/periods'
+import { formatRange, periodPosition, periodWindowAt, shiftOnePeriod } from '../../lib/periods'
 import {
   GOAL_CATEGORIES,
   GOAL_CATEGORY_LABELS,
@@ -42,64 +42,6 @@ import {
   GOAL_PERIOD_LABELS,
 } from '../../lib/types'
 import type { Card, Goal, GoalCategory, GoalPeriod, ID } from '../../lib/types'
-
-const RANGE_FULL = new Intl.DateTimeFormat('fr-FR', {
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-})
-const RANGE_SHORT = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' })
-
-/** Numéro ISO de la semaine d'un jour, et le total de semaines de son année ISO. */
-function isoWeekOf(day: string): { week: number; total: number } {
-  const at = (input: string) => {
-    const date = new Date(input + 'T12:00:00Z')
-    // Le jeudi de la semaine porte l'année ISO.
-    date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7) + 3)
-    const jan4 = new Date(Date.UTC(date.getUTCFullYear(), 0, 4))
-    jan4.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7) + 3)
-    return {
-      year: date.getUTCFullYear(),
-      week: 1 + Math.round((date.getTime() - jan4.getTime()) / 604_800_000),
-    }
-  }
-  const current = at(day)
-  // Le 28 décembre appartient toujours à la dernière semaine ISO de l'année.
-  return { week: current.week, total: at(`${current.year}-12-28`).week }
-}
-
-/**
- * Position de la fenêtre dans son année : 40/52, 9/12, 3/4. Les cycles de
- * 90 jours sont numérotés par groupes de 4 depuis l'ancre. L'année n'a pas de
- * position (1/1) : null.
- */
-function periodPosition(period: GoalPeriod, from: string): string | null {
-  switch (period) {
-    case 'weekly': {
-      const { week, total } = isoWeekOf(from)
-      return `${week}/${total}`
-    }
-    case 'monthly':
-      return `${Number(from.slice(5, 7))}/12`
-    case 'quarter':
-      return `${Math.floor((Number(from.slice(5, 7)) - 1) / 3) + 1}/4`
-    case 'yearly':
-      return null
-  }
-}
-
-/** « du 1 au 30 septembre 2026 », étendu quand le mois ou l'année changent. */
-function formatRange(from: string, to: string): string {
-  const start = new Date(from + 'T12:00:00')
-  const end = new Date(to + 'T12:00:00')
-  if (from.slice(0, 7) === to.slice(0, 7)) {
-    return `du ${start.getDate()} au ${RANGE_FULL.format(end)}`
-  }
-  if (from.slice(0, 4) === to.slice(0, 4)) {
-    return `du ${RANGE_SHORT.format(start)} au ${RANGE_FULL.format(end)}`
-  }
-  return `du ${RANGE_FULL.format(start)} au ${RANGE_FULL.format(end)}`
-}
 
 export function GoalsView({
   onOpenCard,

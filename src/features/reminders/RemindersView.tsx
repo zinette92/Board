@@ -13,10 +13,11 @@ import {
   TextInput,
   cx,
 } from '../../components/ui'
-import { addDays, endOfMonth, formatFullDay, today } from '../../lib/dates'
+import { addDays, formatFullDay, today } from '../../lib/dates'
 import { notify, permissionState, requestPermission } from '../../lib/notify'
 import type { NotifyPermission } from '../../lib/notify'
-import { chipStyle } from '../../lib/palette'
+import { CATEGORY_COLORS, chipStyle } from '../../lib/palette'
+import { formatRange, periodPosition, periodWindowAt } from '../../lib/periods'
 import {
   WEEKDAYS,
   describeRepeat,
@@ -28,7 +29,7 @@ import {
   pendingOccurrences,
 } from '../../lib/reminders'
 import { useStore } from '../../lib/state'
-import { RECURRENCE_UNITS } from '../../lib/types'
+import { GOAL_CATEGORIES, GOAL_CATEGORY_LABELS, RECURRENCE_UNITS } from '../../lib/types'
 import type { LeadNotice, Pending } from '../../lib/reminders'
 import type { ID, RecurrenceUnit, Reminder, Repeat } from '../../lib/types'
 
@@ -87,15 +88,50 @@ function hasOrphanLabel(reminder: Reminder, labelIds: Set<ID>): boolean {
   return reminder.labelIds.some((id) => !labelIds.has(id))
 }
 
-type ReminderScope = 'month' | 'all'
+type ReminderScope = 'weekly' | 'monthly' | 'all'
 type LabelFilter = 'all' | 'other' | ID
 
 export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
   const store = useStore()
   const [draft, setDraft] = useState('')
   const [openId, setOpenId] = useState<ID | null>(null)
-  const [scope, setScope] = useState<ReminderScope>('month')
+  const [scope, setScope] = useState<ReminderScope>(() => {
+    const saved = localStorage.getItem('perso-board:reminders-scope')
+    return saved === 'weekly' || saved === 'monthly' || saved === 'all'
+      ? saved
+      : 'monthly'
+  })
   const [labelFilter, setLabelFilter] = useState<LabelFilter>('all')
+
+  useEffect(() => {
+    localStorage.setItem('perso-board:reminders-scope', scope)
+  }, [scope])
+
+  /** Décalage de fenêtre : 0 = période en cours, négatif = historique. */
+  const [offset, setOffset] = useState(0)
+  useEffect(() => {
+    setOffset(0)
+  }, [scope])
+
+  /** null en mode « Tous » : la liste n'est alors pas fenêtrée. */
+  const window = scope === 'all' ? null : periodWindowAt(scope, offset)
+
+  /* Les flèches ← → feuillettent, comme aux Objectifs — jamais pendant une
+     saisie ni quand une fiche est ouverte. */
+  useEffect(() => {
+    if (scope === 'all') return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (openId) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      setOffset((current) => current + (event.key === 'ArrowRight' ? 1 : -1))
+      event.preventDefault()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [scope, openId])
 
   const day = today()
   const pending = useMemo(() => pendingOccurrences(store.reminders, day), [store.reminders, day])
@@ -109,26 +145,43 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
     })
   }, [store.reminders, day])
 
-  /** Rappels ayant au moins une occurrence entre le 1er et le dernier jour du mois courant. */
-  const monthReminders = useMemo(() => {
-    const from = day.slice(0, 7) + '-01'
-    const to = endOfMonth(day)
-    return sorted.filter((reminder) => occurrencesBetween(reminder, from, to).length > 0)
-  }, [sorted, day])
-
   const labelIds = useMemo(() => new Set(store.labels.map((label) => label.id)), [store.labels])
   const anyOrphan = useMemo(
     () => store.reminders.some((reminder) => hasOrphanLabel(reminder, labelIds)),
     [store.reminders, labelIds],
   )
 
-  /** Le filtre par étiquette ne s'applique que dans « Tous les rappels ». */
+  /**
+   * Fenêtré : les rappels ayant au moins une occurrence dans la fenêtre,
+   * triés par leur première occurrence dedans. « Tous » : tout, avec le
+   * filtre par étiquette.
+   */
   const filtered = useMemo(() => {
-    if (scope === 'month') return monthReminders
-    if (labelFilter === 'all') return sorted
-    if (labelFilter === 'other') return sorted.filter((reminder) => hasOrphanLabel(reminder, labelIds))
-    return sorted.filter((reminder) => reminder.labelIds.includes(labelFilter))
-  }, [scope, sorted, monthReminders, labelFilter, labelIds])
+    if (window) {
+      return sorted
+        .map((reminder) => ({
+          reminder,
+          on: occurrencesBetween(reminder, window.from, window.to)[0] ?? null,
+        }))
+        .filter((entry): entry is { reminder: Reminder; on: string } => entry.on !== null)
+        .sort((a, b) => a.on.localeCompare(b.on))
+    }
+    const all =
+      labelFilter === 'all'
+        ? sorted
+        : labelFilter === 'other'
+          ? sorted.filter((reminder) => hasOrphanLabel(reminder, labelIds))
+          : sorted.filter((reminder) => reminder.labelIds.includes(labelFilter))
+    return all.map((reminder) => ({ reminder, on: null as string | null }))
+  }, [window, sorted, labelFilter, labelIds])
+
+  /** Rangés par domaine — les trois mêmes sections que les Objectifs. */
+  const byDomain = useMemo(() => {
+    const map = new Map<Reminder['domain'], typeof filtered>()
+    for (const category of GOAL_CATEGORIES) map.set(category, [])
+    for (const entry of filtered) map.get(entry.reminder.domain)?.push(entry)
+    return map
+  }, [filtered])
 
   const add = async () => {
     const title = draft.trim()
@@ -154,8 +207,9 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
           <div className="flex rounded-lg border border-line p-0.5">
             {(
               [
-                ['month', 'Ce mois-ci'],
-                ['all', 'Tous les rappels'],
+                ['weekly', 'Semaine'],
+                ['monthly', 'Mois'],
+                ['all', 'Tous'],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -174,6 +228,24 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
 
           <NotificationSwitch />
         </div>
+
+        {window ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-display text-base font-bold text-accent">
+              {formatRange(window.from, window.to)}
+            </span>
+            {offset !== 0 ? (
+              <>
+                <Pill tone={offset < 0 ? 'muted' : 'accent'}>
+                  {offset < 0 ? 'période passée' : 'à venir'}
+                </Pill>
+                <Button size="sm" variant="ghost" onClick={() => setOffset(0)}>
+                  Revenir à aujourd'hui
+                </Button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
 
         <PendingPanel pending={pending} notices={notices} />
 
@@ -239,26 +311,71 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
           </div>
         ) : null}
 
-        {filtered.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">
-            {scope === 'month'
-              ? 'Aucun rappel ce mois-ci.'
-              : labelFilter === 'all'
-                ? "Aucun rappel. Ils n'apparaissent pas sur le tableau — seulement dans le calendrier."
-                : 'Aucun rappel avec cette étiquette.'}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-1.5">
-            {filtered.map((reminder) => (
-              <ReminderCard
-                key={reminder.id}
-                reminder={reminder}
-                open={openId === reminder.id}
-                onToggle={() => setOpenId(openId === reminder.id ? null : reminder.id)}
-              />
-            ))}
-          </ul>
-        )}
+        {GOAL_CATEGORIES.map((category) => {
+          const entries = byDomain.get(category) ?? []
+          return (
+            <section key={category} className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className="size-2.5 rounded-full"
+                  style={{ backgroundColor: CATEGORY_COLORS[category] }}
+                />
+                <h3 className="font-display text-sm font-bold">
+                  {GOAL_CATEGORY_LABELS[category]}
+                </h3>
+                <span className="text-xs text-muted tabular-nums">{entries.length}</span>
+              </div>
+              {entries.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-line p-4 text-center text-xs text-muted">
+                  Aucun rappel{window ? ' sur cette période' : ''} en{' '}
+                  {GOAL_CATEGORY_LABELS[category]}.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {entries.map(({ reminder, on }) => (
+                    <ReminderCard
+                      key={reminder.id}
+                      reminder={reminder}
+                      showOn={on}
+                      open={openId === reminder.id}
+                      onToggle={() => setOpenId(openId === reminder.id ? null : reminder.id)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          )
+        })}
+
+        {window ? (
+          <div className="flex items-center justify-center gap-2 pt-1">
+            <button
+              type="button"
+              aria-label="Période précédente"
+              onClick={() => setOffset(offset - 1)}
+              className="px-1 text-sm text-muted transition-colors hover:text-ink"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              title="Revenir à la période en cours"
+              onClick={() => setOffset(0)}
+              className="text-xs text-muted tabular-nums transition-colors hover:text-ink"
+            >
+              {periodPosition(scope === 'weekly' ? 'weekly' : 'monthly', window.from)}
+            </button>
+            <button
+              type="button"
+              aria-label="Période suivante"
+              onClick={() => setOffset(offset + 1)}
+              className="px-1 text-sm text-muted transition-colors hover:text-ink"
+            >
+              ›
+            </button>
+          </div>
+        ) : null}
 
         <p className="text-xs text-muted">
           Les rappels vivent uniquement dans le <strong className="text-ink">calendrier</strong> :
@@ -442,10 +559,13 @@ export function useReminderNotifications() {
 
 function ReminderCard({
   reminder,
+  showOn,
   open,
   onToggle,
 }: {
   reminder: Reminder
+  /** Occurrence à afficher (vue fenêtrée) ; null = la prochaine en absolu. */
+  showOn: string | null
   open: boolean
   onToggle: () => void
 }) {
@@ -507,6 +627,8 @@ function ReminderCard({
 
         {!reminder.active ? (
           <Pill tone="muted">en pause</Pill>
+        ) : showOn ? (
+          <Pill tone="muted">{formatWhen(showOn, reminder.at)}</Pill>
         ) : finished ? (
           <Pill tone="ok">passé</Pill>
         ) : next ? (
@@ -585,6 +707,19 @@ function ReminderCard({
               value={reminder.note}
               onChange={(event) => set({ note: event.target.value })}
             />
+          </Field>
+
+          <Field label="Domaine">
+            <Select
+              value={reminder.domain}
+              onChange={(event) => set({ domain: event.target.value as Reminder['domain'] })}
+            >
+              {GOAL_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {GOAL_CATEGORY_LABELS[category]}
+                </option>
+              ))}
+            </Select>
           </Field>
 
           {/* ------------------------------------------------------ Rythme */}

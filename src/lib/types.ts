@@ -258,6 +258,8 @@ export type Reminder = {
   title: string
   /** Précision libre : contexte, lien, numéro de dossier… */
   note: string
+  /** Domaine de rattachement — les trois mêmes que les objectifs. */
+  domain: GoalCategory
   labelIds: ID[]
   /** Première occurrence (ou la seule), `YYYY-MM-DD`. */
   startsOn: string

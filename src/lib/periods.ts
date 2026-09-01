@@ -1,6 +1,63 @@
 import { addDays, endOfMonth, parseDay, toDay, today } from './dates'
 import type { GoalPeriod } from './types'
 
+const RANGE_FULL = new Intl.DateTimeFormat('fr-FR', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+})
+const RANGE_SHORT = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' })
+
+/** « du 1 au 30 septembre 2026 », étendu quand le mois ou l'année changent. */
+export function formatRange(from: string, to: string): string {
+  const start = new Date(from + 'T12:00:00')
+  const end = new Date(to + 'T12:00:00')
+  if (from.slice(0, 7) === to.slice(0, 7)) {
+    return `du ${start.getDate()} au ${RANGE_FULL.format(end)}`
+  }
+  if (from.slice(0, 4) === to.slice(0, 4)) {
+    return `du ${RANGE_SHORT.format(start)} au ${RANGE_FULL.format(end)}`
+  }
+  return `du ${RANGE_FULL.format(start)} au ${RANGE_FULL.format(end)}`
+}
+
+/** Numéro ISO de la semaine d'un jour, et le total de semaines de son année ISO. */
+function isoWeekOf(day: string): { week: number; total: number } {
+  const at = (input: string) => {
+    const date = new Date(input + 'T12:00:00Z')
+    // Le jeudi de la semaine porte l'année ISO.
+    date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7) + 3)
+    const jan4 = new Date(Date.UTC(date.getUTCFullYear(), 0, 4))
+    jan4.setUTCDate(jan4.getUTCDate() - ((jan4.getUTCDay() + 6) % 7) + 3)
+    return {
+      year: date.getUTCFullYear(),
+      week: 1 + Math.round((date.getTime() - jan4.getTime()) / 604_800_000),
+    }
+  }
+  const current = at(day)
+  // Le 28 décembre appartient toujours à la dernière semaine ISO de l'année.
+  return { week: current.week, total: at(`${current.year}-12-28`).week }
+}
+
+/**
+ * Position de la fenêtre dans son année : 36/53, 9/12, 3/4. L'année n'a pas
+ * de position (1/1) : null.
+ */
+export function periodPosition(period: GoalPeriod, from: string): string | null {
+  switch (period) {
+    case 'weekly': {
+      const { week, total } = isoWeekOf(from)
+      return `${week}/${total}`
+    }
+    case 'monthly':
+      return `${Number(from.slice(5, 7))}/12`
+    case 'quarter':
+      return `${Math.floor((Number(from.slice(5, 7)) - 1) / 3) + 1}/4`
+    case 'yearly':
+      return null
+  }
+}
+
 /**
  * Fenêtres de dates des périodes d'objectifs — toutes calendaires, trimestres
  * CIVILS compris (1 janv → 31 mars, … 1 oct → 31 déc) : décision finale du

@@ -125,6 +125,7 @@ type ReminderRow = {
   id: string
   title: string
   note: string
+  domain: string
   label_ids: string[]
   starts_on: string
   at: string
@@ -312,6 +313,8 @@ const reminder = {
     id: r.id,
     title: r.title,
     note: r.note,
+    // Colonne ajoutée après coup : les lignes d'avant valent « personnel ».
+    domain: (r.domain as Reminder['domain']) ?? 'personal',
     labelIds: r.label_ids ?? [],
     startsOn: r.starts_on,
     at: r.at,
@@ -327,6 +330,7 @@ const reminder = {
     id: x.id,
     title: x.title,
     note: x.note,
+    domain: x.domain,
     label_ids: x.labelIds,
     starts_on: x.startsOn,
     at: x.at,
