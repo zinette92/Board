@@ -65,6 +65,10 @@ export function GoalsView({
   const [showArchived, setShowArchived] = useState(false)
   /** Menu contextuel (clic droit sur une carte) : quel objectif, où. */
   const [menu, setMenu] = useState<{ goalId: ID; x: number; y: number } | null>(null)
+  /** Objectif en cours de glissement (état : les cibles se re-rendent). */
+  const [draggingId, setDraggingId] = useState<ID | null>(null)
+  /** Domaine survolé pendant un glissement, pour l'accentuer. */
+  const [hoverCat, setHoverCat] = useState<GoalCategory | null>(null)
   const [period, setPeriod] = useState<GoalPeriod>(() => {
     const saved = localStorage.getItem('perso-board:goals-period')
     return (GOAL_PERIODS as readonly string[]).includes(saved ?? '')
@@ -129,7 +133,8 @@ export function GoalsView({
   /** Le domaine visé peut-il recevoir ? Oui s'il n'est pas plein — ou si
       l'objectif y est déjà (simple réordonnancement, le compte ne bouge pas). */
   const canReceive = (category: GoalCategory) => {
-    const dragged = draggingGoalId ? store.goals.find((goal) => goal.id === draggingGoalId) : null
+    const id = draggingId ?? draggingGoalId
+    const dragged = id ? store.goals.find((goal) => goal.id === id) : null
     if (!dragged) return false
     if (dragged.category === category) return true
     const count = (byCategory.get(category) ?? []).filter(
@@ -140,9 +145,12 @@ export function GoalsView({
 
   /** Dépose l'objectif traîné dans `category`, avant `before` (ou en fin). */
   const dropGoal = (category: GoalCategory, before: Goal | null) => {
-    const id = draggingGoalId
+    const id = draggingId ?? draggingGoalId
+    const allowed = id !== null && canReceive(category)
     draggingGoalId = null
-    if (!id || !canReceive(category)) return
+    setDraggingId(null)
+    setHoverCat(null)
+    if (!id || !allowed) return
     const section = (byCategory.get(category) ?? []).filter((goal) => goal.id !== id)
     let position: number
     if (before) {
@@ -216,12 +224,24 @@ export function GoalsView({
           return (
             <section
               key={category}
-              className="flex flex-col gap-2 rounded-xl"
+              className={cx(
+                'flex flex-col gap-2 rounded-xl outline-offset-4 transition-all',
+                // Pendant un glissement, chaque domaine annonce la couleur :
+                // pointillés accent = dépôt possible, estompé = complet.
+                draggingId && canReceive(category) && 'outline-2 outline-dashed outline-accent/50',
+                draggingId && !canReceive(category) && 'opacity-40',
+                draggingId && hoverCat === category && canReceive(category) && 'bg-accent/5',
+              )}
               // Déposer sur la section (hors carte) = envoyer en fin de domaine.
               onDragOver={(event) => {
-                if (!draggingGoalId || !canReceive(category)) return
+                if (!(draggingId ?? draggingGoalId) || !canReceive(category)) return
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
+                if (hoverCat !== category) setHoverCat(category)
+              }}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                setHoverCat((current) => (current === category ? null : current))
               }}
               onDrop={(event) => {
                 event.preventDefault()
@@ -264,6 +284,12 @@ export function GoalsView({
                     onMenu={(x, y) => setMenu({ goalId: goal.id, x, y })}
                     onDropBefore={() => dropGoal(category, goal)}
                     canDrop={() => canReceive(category)}
+                    dragging={draggingId === goal.id}
+                    onDragChange={(id) => {
+                      draggingGoalId = id
+                      setDraggingId(id)
+                      if (id === null) setHoverCat(null)
+                    }}
                     onOpenCard={onOpenCard}
                   />
                 ))
@@ -324,6 +350,8 @@ function GoalRow({
   onMenu,
   onDropBefore,
   canDrop,
+  dragging,
+  onDragChange,
   onOpenCard,
 }: {
   goal: Goal
@@ -333,8 +361,13 @@ function GoalRow({
   /** Dépôt d'un autre objectif sur cette carte : insertion juste avant elle. */
   onDropBefore: () => void
   canDrop: () => boolean
+  /** Vrai pour la carte en cours de glissement : elle s'estompe sur place. */
+  dragging: boolean
+  onDragChange: (id: ID | null) => void
   onOpenCard: (id: ID) => void
 }) {
+  /** Un autre objectif plane au-dessus : il s'insérerait juste avant. */
+  const [insertBefore, setInsertBefore] = useState(false)
   const progress = goalProgress(goal, cards)
   const criteria = smartCriteria(goal)
   const missing = criteria.filter((criterion) => !criterion.filled)
@@ -350,22 +383,26 @@ function GoalRow({
     <article
       draggable
       onDragStart={(event) => {
-        draggingGoalId = goal.id
+        onDragChange(goal.id)
         event.dataTransfer.effectAllowed = 'move'
       }}
-      onDragEnd={() => {
-        draggingGoalId = null
-      }}
+      onDragEnd={() => onDragChange(null)}
       onDragOver={(event) => {
         if (!draggingGoalId || draggingGoalId === goal.id || !canDrop()) return
         event.preventDefault()
         // Sans quoi la section parente traiterait aussi le dépôt.
         event.stopPropagation()
         event.dataTransfer.dropEffect = 'move'
+        if (!insertBefore) setInsertBefore(true)
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+        setInsertBefore(false)
       }}
       onDrop={(event) => {
         event.preventDefault()
         event.stopPropagation()
+        setInsertBefore(false)
         onDropBefore()
       }}
       onClick={onEdit}
@@ -374,8 +411,11 @@ function GoalRow({
         onMenu(event.clientX, event.clientY)
       }}
       className={cx(
-        'cursor-pointer rounded-xl border border-line bg-surface p-4 shadow-sm transition-colors hover:border-accent/50',
+        'cursor-pointer rounded-xl border border-line bg-surface p-4 shadow-sm transition-all hover:border-accent/50',
         goal.status === 'archived' && 'opacity-60',
+        // Aperçu transparent : la source reste visible mais s'efface.
+        dragging && 'opacity-40',
+        insertBefore && 'border-t-2 border-t-accent',
       )}
     >
       <div className="flex flex-wrap items-start gap-2">

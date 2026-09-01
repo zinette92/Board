@@ -15,7 +15,7 @@ import {
 import { addDays, formatDay, formatFullDay, today } from '../../lib/dates'
 import { notify, permissionState, requestPermission } from '../../lib/notify'
 import type { NotifyPermission } from '../../lib/notify'
-import { CATEGORY_COLORS, chipStyle } from '../../lib/palette'
+import { CATEGORY_COLORS, chipStyle, resolveLabelColor } from '../../lib/palette'
 import { formatRange, periodPosition, periodWindowAt } from '../../lib/periods'
 import {
   WEEKDAYS,
@@ -103,6 +103,10 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
   const [openId, setOpenId] = useState<ID | null>(null)
   /** Menu contextuel (clic droit sur une ligne) : quel rappel, où. */
   const [menu, setMenu] = useState<{ reminderId: ID; x: number; y: number } | null>(null)
+  /** Rappel en cours de glissement (état : les cibles se re-rendent). */
+  const [draggingId, setDraggingId] = useState<ID | null>(null)
+  /** Domaine survolé pendant un glissement, pour l'accentuer. */
+  const [hoverCat, setHoverCat] = useState<Reminder['domain'] | null>(null)
   const [scope, setScope] = useState<ReminderScope>(() => {
     const saved = localStorage.getItem('perso-board:reminders-scope')
     return saved === 'weekly' || saved === 'monthly' || saved === 'all'
@@ -324,18 +328,30 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
           return (
             <section
               key={category}
-              className="flex flex-col gap-2 rounded-xl transition-shadow"
+              className={cx(
+                'flex flex-col gap-2 rounded-xl outline-offset-4 transition-all',
+                // Pendant un glissement, chaque domaine annonce qu'il accepte.
+                draggingId && 'outline-2 outline-dashed outline-accent/50',
+                draggingId && hoverCat === category && 'bg-accent/5',
+              )}
               // Déposer une ligne sur la section la reclasse dans ce domaine.
               onDragOver={(event) => {
                 if (!draggingReminderId) return
                 event.preventDefault()
                 event.dataTransfer.dropEffect = 'move'
+                if (hoverCat !== category) setHoverCat(category)
+              }}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                setHoverCat((current) => (current === category ? null : current))
               }}
               onDrop={(event) => {
                 if (!draggingReminderId) return
                 event.preventDefault()
                 void store.updateReminder(draggingReminderId, { domain: category })
                 draggingReminderId = null
+                setDraggingId(null)
+                setHoverCat(null)
               }}
             >
               <div className="flex items-center gap-2">
@@ -364,6 +380,12 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
                       open={openId === reminder.id}
                       onToggle={() => setOpenId(openId === reminder.id ? null : reminder.id)}
                       onMenu={(x, y) => setMenu({ reminderId: reminder.id, x, y })}
+                      dragging={draggingId === reminder.id}
+                      onDragChange={(id) => {
+                        draggingReminderId = id
+                        setDraggingId(id)
+                        if (id === null) setHoverCat(null)
+                      }}
                     />
                   ))}
                 </ul>
@@ -687,6 +709,8 @@ function ReminderCard({
   open,
   onToggle,
   onMenu,
+  dragging,
+  onDragChange,
 }: {
   reminder: Reminder
   /** Occurrence à afficher (vue fenêtrée) ; null = la prochaine en absolu. */
@@ -694,6 +718,9 @@ function ReminderCard({
   open: boolean
   onToggle: () => void
   onMenu: (x: number, y: number) => void
+  /** Vraie pour la ligne en cours de glissement : elle s'estompe sur place. */
+  dragging: boolean
+  onDragChange: (id: ID | null) => void
 }) {
   const store = useStore()
   const [noteOpen, setNoteOpen] = useState(false)
@@ -715,41 +742,32 @@ function ReminderCard({
     <li
       draggable
       onDragStart={(event) => {
-        draggingReminderId = reminder.id
+        onDragChange(reminder.id)
         event.dataTransfer.effectAllowed = 'move'
       }}
-      onDragEnd={() => {
-        draggingReminderId = null
-      }}
+      onDragEnd={() => onDragChange(null)}
       onContextMenu={(event) => {
         event.preventDefault()
         onMenu(event.clientX, event.clientY)
       }}
       className={cx(
-        'rounded-xl border bg-surface shadow-sm',
+        'rounded-xl border bg-surface shadow-sm transition-all',
         open ? 'border-accent' : 'border-line',
         !reminder.active && 'opacity-60',
+        // Aperçu transparent : la source reste visible mais s'efface.
+        dragging && 'opacity-40',
       )}
     >
       <div
         className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2 transition-colors hover:bg-surface-2/40"
         onClick={onToggle}
       >
-        {/* Une note existe : le chevron la déplie sous la ligne. */}
-        {hasNote ? (
-          <button
-            type="button"
-            aria-label={noteOpen ? 'Replier la note' : 'Déplier la note'}
-            title={noteOpen ? 'Replier la note' : 'Déplier la note'}
-            onClick={(event) => {
-              event.stopPropagation()
-              setNoteOpen(!noteOpen)
-            }}
-            className="shrink-0 text-xs text-muted transition-colors hover:text-accent"
-          >
-            {noteOpen ? '▾' : '▸'}
-          </button>
-        ) : null}
+        {/* Puce à la couleur de l'étiquette — creuse quand il n'y en a pas. */}
+        <span
+          aria-hidden
+          className={cx('size-2 shrink-0 rounded-full', !labels[0] && 'border border-line')}
+          style={labels[0] ? { backgroundColor: resolveLabelColor(labels[0].color) } : undefined}
+        />
         <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
           {reminder.title || <span className="text-muted">Sans titre</span>}
         </span>
@@ -792,6 +810,22 @@ function ReminderCard({
 
         {/* Périodicité tout à droite, demande explicite du user. */}
         <span className="shrink-0 text-xs text-muted">{describeRepeat(reminder.repeat)}</span>
+
+        {/* Une note existe : le chevron, à droite, la déplie sous la ligne. */}
+        {hasNote ? (
+          <button
+            type="button"
+            aria-label={noteOpen ? 'Replier la note' : 'Déplier la note'}
+            title={noteOpen ? 'Replier la note' : 'Déplier la note'}
+            onClick={(event) => {
+              event.stopPropagation()
+              setNoteOpen(!noteOpen)
+            }}
+            className="shrink-0 text-xs text-muted transition-colors hover:text-accent"
+          >
+            {noteOpen ? '▾' : '▸'}
+          </button>
+        ) : null}
       </div>
 
       {hasNote && noteOpen ? (
@@ -1006,13 +1040,9 @@ function ReminderCard({
                     <button
                       key={label.id}
                       type="button"
-                      onClick={() =>
-                        set({
-                          labelIds: on
-                            ? reminder.labelIds.filter((id) => id !== label.id)
-                            : [...reminder.labelIds, label.id],
-                        })
-                      }
+                      // Une seule étiquette par rappel : choisir remplace,
+                      // re-cliquer retire.
+                      onClick={() => set({ labelIds: on ? [] : [label.id] })}
                       className={cx(
                         'rounded border px-2 py-0.5 text-xs font-medium transition-opacity',
                         on ? 'ring-1 ring-accent' : 'opacity-60 hover:opacity-100',
