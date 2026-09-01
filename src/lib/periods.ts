@@ -5,11 +5,11 @@ import type { GoalPeriod } from './types'
  * Fenêtres de dates des périodes d'objectifs.
  *
  * Semaine, mois et année suivent le calendrier. Les « 90 jours » sont des
- * cycles fixes ancrés au 1er octobre 2026 (décision du user) : avant
- * l'ancre, la fenêtre courante est le premier cycle à venir ; après, les
- * cycles s'enchaînent sans trou, 90 jours pile chacun.
+ * cycles fixes ancrés au 1er janvier 2026 (décision du user, corrigée du
+ * 1er octobre) : ils s'enchaînent sans trou, 90 jours pile chacun — quatre
+ * par an, à un chouïa de dérive près.
  */
-export const QUARTER_ANCHOR = '2026-10-01'
+export const QUARTER_ANCHOR = '2026-01-01'
 
 export function periodWindow(period: GoalPeriod, day = today()): { from: string; to: string } {
   return periodWindowAt(period, 0, day)

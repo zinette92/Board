@@ -297,6 +297,13 @@ function ShortcutsSection() {
     ],
     ['Tableau — liste survolée par la souris', [['R', 'Réduire ou rouvrir la liste']]],
     [
+      'Objectifs',
+      [
+        ['←', 'Période précédente'],
+        ['→', 'Période suivante'],
+      ],
+    ],
+    [
       'Éditeur de description',
       [
         ['Ctrl + B', 'Gras'],

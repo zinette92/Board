@@ -134,6 +134,23 @@ export function GoalsView({
     setOffset(0)
   }, [period])
 
+  /* Les flèches ← → du clavier feuillettent les périodes, comme les flèches
+     du bas — jamais pendant une saisie ni quand la fiche est ouverte. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (editing) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      setOffset((current) => current + (event.key === 'ArrowRight' ? 1 : -1))
+      event.preventDefault()
+    }
+    // `window` est masqué par la fenêtre de période locale : document convient.
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [editing])
+
   const window = periodWindowAt(period, offset)
 
   const cards = useMemo(() => store.cards.filter((card) => card.archivedAt === null), [store.cards])
