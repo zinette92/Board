@@ -2,14 +2,10 @@ import { addDays, endOfMonth, parseDay, toDay, today } from './dates'
 import type { GoalPeriod } from './types'
 
 /**
- * Fenêtres de dates des périodes d'objectifs.
- *
- * Semaine, mois et année suivent le calendrier. Les « 90 jours » sont des
- * cycles fixes ancrés au 1er janvier 2026 (décision du user, corrigée du
- * 1er octobre) : ils s'enchaînent sans trou, 90 jours pile chacun — quatre
- * par an, à un chouïa de dérive près.
+ * Fenêtres de dates des périodes d'objectifs — toutes calendaires, trimestres
+ * CIVILS compris (1 janv → 31 mars, … 1 oct → 31 déc) : décision finale du
+ * user, après deux essais de cycles de 90 jours ancrés.
  */
-export const QUARTER_ANCHOR = '2026-01-01'
 
 export function periodWindow(period: GoalPeriod, day = today()): { from: string; to: string } {
   return periodWindowAt(period, 0, day)
@@ -36,8 +32,13 @@ export function shiftOnePeriod(period: GoalPeriod, day: string): string {
         new Date(date.getFullYear(), date.getMonth() + 1, Math.min(date.getDate(), lastOfNext)),
       )
     }
-    case 'quarter':
-      return addDays(day, 90)
+    case 'quarter': {
+      // +3 mois en gardant le quantième, clampé en fin de mois court.
+      const lastOfTarget = new Date(date.getFullYear(), date.getMonth() + 4, 0).getDate()
+      return toDay(
+        new Date(date.getFullYear(), date.getMonth() + 3, Math.min(date.getDate(), lastOfTarget)),
+      )
+    }
     case 'yearly': {
       const leap = date.getMonth() === 1 && date.getDate() === 29
       return toDay(new Date(date.getFullYear() + 1, date.getMonth(), leap ? 28 : date.getDate()))
@@ -62,14 +63,13 @@ export function periodWindowAt(
       return { from: first, to: endOfMonth(first) }
     }
     case 'quarter': {
-      const elapsed = Math.floor(
-        (parseDay(day).getTime() - parseDay(QUARTER_ANCHOR).getTime()) / 86_400_000,
-      )
-      // Avant l'ancre, le cycle « courant » est le premier à venir (index 0) ;
-      // la grille des cycles reste la même pour tout le monde.
-      const index = (day < QUARTER_ANCHOR ? 0 : Math.floor(elapsed / 90)) + offset
-      const from = addDays(QUARTER_ANCHOR, index * 90)
-      return { from, to: addDays(from, 89) }
+      const date = parseDay(day)
+      const startMonth = Math.floor(date.getMonth() / 3) * 3 + offset * 3
+      const from = new Date(date.getFullYear(), startMonth, 1)
+      return {
+        from: toDay(from),
+        to: toDay(new Date(from.getFullYear(), from.getMonth() + 3, 0)),
+      }
     }
     case 'yearly': {
       const year = Number(day.slice(0, 4)) + offset

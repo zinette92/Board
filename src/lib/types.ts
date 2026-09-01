@@ -159,7 +159,7 @@ export type GoalPeriod = (typeof GOAL_PERIODS)[number]
 export const GOAL_PERIOD_LABELS: Record<GoalPeriod, string> = {
   weekly: 'Hebdo',
   monthly: 'Mensuel',
-  quarter: '90 jours',
+  quarter: 'Trimestre',
   yearly: 'Annuel',
 }
 

@@ -242,6 +242,7 @@ export function Modal({
   children,
   footer,
   wide,
+  corner,
 }: {
   open: boolean
   onClose: () => void
@@ -249,6 +250,8 @@ export function Modal({
   children: ReactNode
   footer?: ReactNode
   wide?: boolean
+  /** Remplace la croix de fermeture — Échap et le clic hors fiche restent. */
+  corner?: ReactNode
 }) {
   const panel = useRef<HTMLDivElement>(null)
 
@@ -299,9 +302,11 @@ export function Modal({
       >
         <header className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
           <div className="min-w-0 flex-1 text-base font-semibold">{title}</div>
-          <IconButton label="Fermer" onClick={onClose}>
-            ✕
-          </IconButton>
+          {corner ?? (
+            <IconButton label="Fermer" onClick={onClose}>
+              ✕
+            </IconButton>
+          )}
         </header>
         <div className="px-4 py-4">{children}</div>
         {footer ? (

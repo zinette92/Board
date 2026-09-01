@@ -34,7 +34,7 @@ import {
 } from '../../lib/goals'
 import { CATEGORY_COLORS } from '../../lib/palette'
 import { useStore } from '../../lib/state'
-import { QUARTER_ANCHOR, periodWindowAt, shiftOnePeriod } from '../../lib/periods'
+import { periodWindowAt, shiftOnePeriod } from '../../lib/periods'
 import {
   GOAL_CATEGORIES,
   GOAL_CATEGORY_LABELS,
@@ -81,14 +81,8 @@ function periodPosition(period: GoalPeriod, from: string): string | null {
     }
     case 'monthly':
       return `${Number(from.slice(5, 7))}/12`
-    case 'quarter': {
-      const elapsed = Math.round(
-        (new Date(from + 'T12:00:00Z').getTime() - new Date(QUARTER_ANCHOR + 'T12:00:00Z').getTime()) /
-          86_400_000,
-      )
-      const cycle = Math.round(elapsed / 90)
-      return `${((cycle % 4) + 4) % 4 + 1}/4`
-    }
+    case 'quarter':
+      return `${Math.floor((Number(from.slice(5, 7)) - 1) / 3) + 1}/4`
     case 'yearly':
       return null
   }
@@ -337,9 +331,12 @@ function GoalRow({
   const barTone = tone === 'muted' ? 'accent' : tone
 
   return (
+    // Toute la carte ouvre la fiche — les zones interactives intérieures
+    // (tâches rattachées) coupent la propagation.
     <article
+      onClick={onEdit}
       className={cx(
-        'rounded-xl border border-line bg-surface p-4 shadow-sm',
+        'cursor-pointer rounded-xl border border-line bg-surface p-4 shadow-sm transition-colors hover:border-accent/50',
         goal.status === 'archived' && 'opacity-60',
       )}
     >
@@ -371,9 +368,6 @@ function GoalRow({
           </h3>
           {goal.specific ? <p className="mt-0.5 text-sm text-muted">{goal.specific}</p> : null}
         </div>
-        <Button size="sm" onClick={onEdit}>
-          Modifier
-        </Button>
       </div>
 
       <div className="mt-3">
@@ -493,7 +487,7 @@ function GoalRow({
       ) : null}
 
       {linked.length > 0 ? (
-        <details className="mt-3">
+        <details className="mt-3" onClick={(event) => event.stopPropagation()}>
           <summary className="cursor-pointer text-xs font-medium text-muted hover:text-ink">
             {linked.length} tâche(s) rattachée(s)
           </summary>
@@ -584,6 +578,17 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
       wide
       onClose={onClose}
       title="Objectif"
+      corner={
+        <Pill
+          tone="plain"
+          style={{
+            borderColor: `color-mix(in oklab, ${CATEGORY_COLORS[draft.category]} 45%, transparent)`,
+            backgroundColor: `color-mix(in oklab, ${CATEGORY_COLORS[draft.category]} 18%, transparent)`,
+          }}
+        >
+          {GOAL_CATEGORY_LABELS[draft.category]}
+        </Pill>
+      }
       footer={
         <>
           <Button
