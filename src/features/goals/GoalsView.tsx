@@ -36,7 +36,7 @@ import {
 } from '../../lib/goals'
 import { CATEGORY_COLORS } from '../../lib/palette'
 import { useStore } from '../../lib/state'
-import { periodWindow } from '../../lib/periods'
+import { periodWindowAt } from '../../lib/periods'
 import {
   GOAL_CATEGORIES,
   GOAL_CATEGORY_LABELS,
@@ -44,6 +44,26 @@ import {
   GOAL_PERIOD_LABELS,
 } from '../../lib/types'
 import type { Card, Goal, GoalCategory, GoalPeriod, ID } from '../../lib/types'
+
+const RANGE_FULL = new Intl.DateTimeFormat('fr-FR', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+})
+const RANGE_SHORT = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' })
+
+/** « du 1 au 30 septembre 2026 », étendu quand le mois ou l'année changent. */
+function formatRange(from: string, to: string): string {
+  const start = new Date(from + 'T12:00:00')
+  const end = new Date(to + 'T12:00:00')
+  if (from.slice(0, 7) === to.slice(0, 7)) {
+    return `du ${start.getDate()} au ${RANGE_FULL.format(end)}`
+  }
+  if (from.slice(0, 4) === to.slice(0, 4)) {
+    return `du ${RANGE_SHORT.format(start)} au ${RANGE_FULL.format(end)}`
+  }
+  return `du ${RANGE_FULL.format(start)} au ${RANGE_FULL.format(end)}`
+}
 
 export function GoalsView({
   onOpenCard,
@@ -66,25 +86,36 @@ export function GoalsView({
     localStorage.setItem('perso-board:goals-period', period)
   }, [period])
 
+  /** Décalage de fenêtre : 0 = période en cours, négatif = historique. */
+  const [offset, setOffset] = useState(0)
+  useEffect(() => {
+    setOffset(0)
+  }, [period])
+
+  const window = periodWindowAt(period, offset)
+
   const cards = useMemo(() => store.cards.filter((card) => card.archivedAt === null), [store.cards])
 
-  /** Les objectifs de la période affichée, rangés par domaine. */
+  /**
+   * Les objectifs de la fenêtre affichée, rangés par domaine. Un objectif
+   * appartient à la période où tombe son échéance : c'est ce qui fait
+   * l'archivage — la semaine finie, ses objectifs restent sur sa page.
+   */
   const byCategory = useMemo(() => {
     const map = new Map<GoalCategory, Goal[]>()
     for (const category of GOAL_CATEGORIES) map.set(category, [])
     for (const goal of store.goals) {
       if (goal.period !== period) continue
+      if (goal.dueOn < window.from || goal.dueOn > window.to) continue
       if (!showArchived && goal.status === 'archived') continue
       map.get(goal.category)?.push(goal)
     }
     for (const list of map.values()) list.sort((a, b) => a.position - b.position)
     return map
-  }, [store.goals, period, showArchived])
-
-  const window = periodWindow(period)
+  }, [store.goals, period, window.from, window.to, showArchived])
 
   const create = async (category: GoalCategory) => {
-    const goal = await store.createGoal(category, period)
+    const goal = await store.createGoal(category, period, window)
     if (goal) setEditing(goal.id)
   }
 
@@ -128,11 +159,28 @@ export function GoalsView({
           </div>
         </div>
 
-        <p className="text-xs text-muted">
-          {GOAL_PERIOD_LABELS[period]} — du {formatFullDay(window.from)} au{' '}
-          {formatFullDay(window.to)}. 3 objectifs par domaine, pas un de plus : choisir, c'est
-          renoncer.
-        </p>
+        {/* La fenêtre affichée, feuilletable : c'est ici que vit l'historique. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={() => setOffset(offset - 1)} aria-label="Période précédente">
+            ‹
+          </Button>
+          <span className="font-display text-base font-bold text-accent">
+            {formatRange(window.from, window.to)}
+          </span>
+          <Button size="sm" onClick={() => setOffset(offset + 1)} aria-label="Période suivante">
+            ›
+          </Button>
+          {offset !== 0 ? (
+            <>
+              <Pill tone={offset < 0 ? 'muted' : 'accent'}>
+                {offset < 0 ? 'période passée' : 'à venir'}
+              </Pill>
+              <Button size="sm" variant="ghost" onClick={() => setOffset(0)}>
+                Revenir à aujourd'hui
+              </Button>
+            </>
+          ) : null}
+        </div>
 
         {GOAL_CATEGORIES.map((category) => {
           const sectionGoals = byCategory.get(category) ?? []

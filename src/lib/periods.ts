@@ -1,4 +1,4 @@
-import { addDays, endOfMonth, parseDay, today } from './dates'
+import { addDays, endOfMonth, parseDay, toDay, today } from './dates'
 import type { GoalPeriod } from './types'
 
 /**
@@ -12,23 +12,43 @@ import type { GoalPeriod } from './types'
 export const QUARTER_ANCHOR = '2026-10-01'
 
 export function periodWindow(period: GoalPeriod, day = today()): { from: string; to: string } {
+  return periodWindowAt(period, 0, day)
+}
+
+/**
+ * Fenêtre décalée de `offset` périodes (négatif = passé). C'est ce qui rend
+ * l'historique navigable : chaque semaine, mois, cycle ou année garde ses
+ * objectifs, retrouvés en feuilletant — rien n'est copié ni archivé à part.
+ */
+export function periodWindowAt(
+  period: GoalPeriod,
+  offset: number,
+  day = today(),
+): { from: string; to: string } {
   switch (period) {
     case 'weekly': {
       // Semaine française : lundi → dimanche.
-      const monday = addDays(day, -((parseDay(day).getDay() + 6) % 7))
+      const monday = addDays(day, -((parseDay(day).getDay() + 6) % 7) + offset * 7)
       return { from: monday, to: addDays(monday, 6) }
     }
-    case 'monthly':
-      return { from: day.slice(0, 8) + '01', to: endOfMonth(day) }
+    case 'monthly': {
+      const date = parseDay(day)
+      const first = toDay(new Date(date.getFullYear(), date.getMonth() + offset, 1))
+      return { from: first, to: endOfMonth(first) }
+    }
     case 'quarter': {
-      if (day < QUARTER_ANCHOR) return { from: QUARTER_ANCHOR, to: addDays(QUARTER_ANCHOR, 89) }
       const elapsed = Math.floor(
         (parseDay(day).getTime() - parseDay(QUARTER_ANCHOR).getTime()) / 86_400_000,
       )
-      const from = addDays(QUARTER_ANCHOR, Math.floor(elapsed / 90) * 90)
+      // Avant l'ancre, le cycle « courant » est le premier à venir (index 0) ;
+      // la grille des cycles reste la même pour tout le monde.
+      const index = (day < QUARTER_ANCHOR ? 0 : Math.floor(elapsed / 90)) + offset
+      const from = addDays(QUARTER_ANCHOR, index * 90)
       return { from, to: addDays(from, 89) }
     }
-    case 'yearly':
-      return { from: day.slice(0, 4) + '-01-01', to: day.slice(0, 4) + '-12-31' }
+    case 'yearly': {
+      const year = Number(day.slice(0, 4)) + offset
+      return { from: `${year}-01-01`, to: `${year}-12-31` }
+    }
   }
 }

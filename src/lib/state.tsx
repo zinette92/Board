@@ -138,7 +138,11 @@ export type Store = {
   deleteLabel: (id: ID) => Promise<void>
   toggleCardLabel: (cardId: ID, labelId: ID) => Promise<void>
 
-  createGoal: (category: GoalCategory, period?: GoalPeriod) => Promise<Goal | undefined>
+  createGoal: (
+    category: GoalCategory,
+    period?: GoalPeriod,
+    window?: { from: string; to: string },
+  ) => Promise<Goal | undefined>
   updateGoal: (id: ID, patch: Partial<Goal>) => Promise<void>
   deleteGoal: (id: ID) => Promise<void>
 
@@ -711,9 +715,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* --------------------------------------------------------------- Objectifs */
-      createGoal: async (category, period = 'monthly') => {
-        // L'objectif naît calé sur la fenêtre de sa période : bornes T déjà justes.
-        const window = periodWindow(period)
+      createGoal: async (category, period = 'monthly', window = periodWindow(period)) => {
+        // L'objectif naît calé sur la fenêtre de sa période — celle affichée
+        // si l'on crée depuis une période passée ou à venir.
         const goal = makeGoal(category, positionAtEnd(snap().goals.map((item) => item.position)), {
           period,
           startsOn: window.from,
