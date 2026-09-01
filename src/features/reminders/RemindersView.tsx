@@ -5,7 +5,6 @@ import {
   Button,
   ConfirmButton,
   Field,
-  IconButton,
   Modal,
   Pill,
   Select,
@@ -13,7 +12,7 @@ import {
   TextInput,
   cx,
 } from '../../components/ui'
-import { addDays, formatFullDay, today } from '../../lib/dates'
+import { addDays, formatDay, formatFullDay, today } from '../../lib/dates'
 import { notify, permissionState, requestPermission } from '../../lib/notify'
 import type { NotifyPermission } from '../../lib/notify'
 import { CATEGORY_COLORS, chipStyle } from '../../lib/palette'
@@ -89,12 +88,21 @@ function hasOrphanLabel(reminder: Reminder, labelIds: Set<ID>): boolean {
 }
 
 type ReminderScope = 'weekly' | 'monthly' | 'all'
+
+/**
+ * Rappel en cours de glissement. Hors React : `dataTransfer.getData` est
+ * indisponible pendant le survol (dragover), seul le drop y a droit — il faut
+ * donc un canal parallèle pour savoir quoi accepter.
+ */
+let draggingReminderId: ID | null = null
 type LabelFilter = 'all' | 'other' | ID
 
 export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
   const store = useStore()
   const [draft, setDraft] = useState('')
   const [openId, setOpenId] = useState<ID | null>(null)
+  /** Menu contextuel (clic droit sur une ligne) : quel rappel, où. */
+  const [menu, setMenu] = useState<{ reminderId: ID; x: number; y: number } | null>(null)
   const [scope, setScope] = useState<ReminderScope>(() => {
     const saved = localStorage.getItem('perso-board:reminders-scope')
     return saved === 'weekly' || saved === 'monthly' || saved === 'all'
@@ -314,7 +322,22 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
         {GOAL_CATEGORIES.map((category) => {
           const entries = byDomain.get(category) ?? []
           return (
-            <section key={category} className="flex flex-col gap-2">
+            <section
+              key={category}
+              className="flex flex-col gap-2 rounded-xl transition-shadow"
+              // Déposer une ligne sur la section la reclasse dans ce domaine.
+              onDragOver={(event) => {
+                if (!draggingReminderId) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+              }}
+              onDrop={(event) => {
+                if (!draggingReminderId) return
+                event.preventDefault()
+                void store.updateReminder(draggingReminderId, { domain: category })
+                draggingReminderId = null
+              }}
+            >
               <div className="flex items-center gap-2">
                 <span
                   aria-hidden
@@ -340,6 +363,7 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
                       showOn={on}
                       open={openId === reminder.id}
                       onToggle={() => setOpenId(openId === reminder.id ? null : reminder.id)}
+                      onMenu={(x, y) => setMenu({ reminderId: reminder.id, x, y })}
                     />
                   ))}
                 </ul>
@@ -377,6 +401,15 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
           </div>
         ) : null}
 
+        {menu ? (
+          <ReminderContextMenu
+            reminderId={menu.reminderId}
+            x={menu.x}
+            y={menu.y}
+            onClose={() => setMenu(null)}
+          />
+        ) : null}
+
         <p className="text-xs text-muted">
           Les rappels vivent uniquement dans le <strong className="text-ink">calendrier</strong> :
           ils ne créent aucune carte et n'apparaissent pas sur le tableau.
@@ -387,6 +420,97 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
 }
 
 /* ------------------------------------------------------------- À valider */
+
+/**
+ * Clic droit sur une ligne de rappel : valider l'échéance en attente (ou la
+ * prochaine), mettre en pause, supprimer — sans ouvrir la fiche.
+ */
+function ReminderContextMenu({
+  reminderId,
+  x,
+  y,
+  onClose,
+}: {
+  reminderId: ID
+  x: number
+  y: number
+  onClose: () => void
+}) {
+  const store = useStore()
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const reminder = store.reminders.find((item) => item.id === reminderId)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  if (!reminder) return null
+  // L'échéance à valider : d'abord celle qui attend, sinon la prochaine.
+  const pending = pendingOccurrences([reminder], today())[0]?.on ?? null
+  const target = pending ?? nextOccurrence(reminder, today())
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40"
+        onMouseDown={onClose}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        className="fixed z-50 flex w-52 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl"
+        style={{
+          left: Math.min(x, globalThis.innerWidth - 220),
+          top: Math.min(y, globalThis.innerHeight - 150),
+        }}
+      >
+        <Button
+          size="sm"
+          variant="ghost"
+          className="justify-start"
+          disabled={target === null}
+          title={target ? `Valider l'échéance du ${formatFullDay(target)}` : 'Aucune échéance'}
+          onClick={() => {
+            onClose()
+            if (target) void store.setReminderDone(reminder.id, target, true)
+          }}
+        >
+          ✓ Valider{target ? ` (${formatDay(target)})` : ''}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="justify-start"
+          onClick={() => {
+            onClose()
+            void store.updateReminder(reminder.id, { active: !reminder.active })
+          }}
+        >
+          {reminder.active ? '⏸ Mettre en pause' : '▶ Réactiver'}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={cx('justify-start', confirmDelete && 'text-danger')}
+          onClick={() => {
+            if (confirmDelete) {
+              onClose()
+              void store.deleteReminder(reminder.id)
+            } else setConfirmDelete(true)
+          }}
+        >
+          🗑 {confirmDelete ? 'Supprimer pour de bon ?' : 'Supprimer'}
+        </Button>
+      </div>
+    </>
+  )
+}
 
 /**
  * Chaque échéance arrivée à terme attend sa propre validation. Une occurrence
@@ -466,7 +590,7 @@ function PendingPanel({
       {notices.length > 0 ? (
         <div className="rounded-xl border border-accent/40 bg-accent/10 p-3">
           <span className="mb-2 block text-xs font-semibold tracking-wide text-muted uppercase">
-            Pré-avis
+            Notifications
           </span>
           <ul className="flex flex-col gap-1.5">
             {notices.map((notice) => (
@@ -562,14 +686,17 @@ function ReminderCard({
   showOn,
   open,
   onToggle,
+  onMenu,
 }: {
   reminder: Reminder
   /** Occurrence à afficher (vue fenêtrée) ; null = la prochaine en absolu. */
   showOn: string | null
   open: boolean
   onToggle: () => void
+  onMenu: (x: number, y: number) => void
 }) {
   const store = useStore()
+  const [noteOpen, setNoteOpen] = useState(false)
   const next = nextOccurrence(reminder, today())
   const finished = isFinished(reminder)
   const waiting = pendingOccurrences([reminder], today()).length
@@ -582,22 +709,50 @@ function ReminderCard({
 
   const set = (patch: Partial<Reminder>) => store.updateReminder(reminder.id, patch)
 
+  const hasNote = reminder.note.trim().length > 0
+
   return (
     <li
+      draggable
+      onDragStart={(event) => {
+        draggingReminderId = reminder.id
+        event.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragEnd={() => {
+        draggingReminderId = null
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        onMenu(event.clientX, event.clientY)
+      }}
       className={cx(
         'rounded-xl border bg-surface shadow-sm',
         open ? 'border-accent' : 'border-line',
         !reminder.active && 'opacity-60',
       )}
     >
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:text-accent"
-        >
+      <div
+        className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2 transition-colors hover:bg-surface-2/40"
+        onClick={onToggle}
+      >
+        {/* Une note existe : le chevron la déplie sous la ligne. */}
+        {hasNote ? (
+          <button
+            type="button"
+            aria-label={noteOpen ? 'Replier la note' : 'Déplier la note'}
+            title={noteOpen ? 'Replier la note' : 'Déplier la note'}
+            onClick={(event) => {
+              event.stopPropagation()
+              setNoteOpen(!noteOpen)
+            }}
+            className="shrink-0 text-xs text-muted transition-colors hover:text-accent"
+          >
+            {noteOpen ? '▾' : '▸'}
+          </button>
+        ) : null}
+        <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
           {reminder.title || <span className="text-muted">Sans titre</span>}
-        </button>
+        </span>
 
         {labels.map((label) => (
           <span
@@ -617,8 +772,6 @@ function ReminderCard({
           </span>
         ) : null}
 
-        <span className="text-xs text-muted">{describeRepeat(reminder.repeat)}</span>
-
         {waiting > 0 ? (
           <Pill tone="warn">
             {waiting} à valider
@@ -637,29 +790,15 @@ function ReminderCard({
           <Pill tone="muted">aucune date</Pill>
         )}
 
-        <IconButton
-          label={reminder.active ? 'Mettre en pause' : 'Réactiver'}
-          onClick={() => set({ active: !reminder.active })}
-        >
-          {reminder.active ? '⏸' : '▶'}
-        </IconButton>
-        {/* Pastille arrondie et bordée, dans l'esprit de la barre de liste
-            réduite — un badge distinct plutôt qu'une simple icône au survol. */}
-        <button
-          type="button"
-          aria-label="Modifier le rappel"
-          title="Modifier le rappel"
-          onClick={onToggle}
-          className={cx(
-            'grid size-7 shrink-0 place-items-center rounded-full border text-xs transition-colors',
-            open
-              ? 'border-accent bg-accent/10 text-accent'
-              : 'border-line bg-surface-2 text-muted hover:border-accent hover:text-accent',
-          )}
-        >
-          ✎
-        </button>
+        {/* Périodicité tout à droite, demande explicite du user. */}
+        <span className="shrink-0 text-xs text-muted">{describeRepeat(reminder.repeat)}</span>
       </div>
+
+      {hasNote && noteOpen ? (
+        <p className="border-t border-line px-3 py-2 text-sm whitespace-pre-wrap text-muted">
+          {reminder.note}
+        </p>
+      ) : null}
 
       <Modal
         open={open}
@@ -673,7 +812,7 @@ function ReminderCard({
                 ? `Prochaine échéance : ${formatWhen(next, reminder.at)}`
                 : 'Aucune échéance à venir.'}
               {reminder.leadDays > 0 && next
-                ? ` · pré-avis le ${formatFullDay(addDays(next, -reminder.leadDays))}`
+                ? ` · notification le ${formatFullDay(addDays(next, -reminder.leadDays))}`
                 : ''}
             </span>
             <ConfirmButton
@@ -832,18 +971,24 @@ function ReminderCard({
               />
             </div>
 
-            <Field label="Pré-avis" hint="Prévenir aussi X jours avant. 0 = seulement le jour J.">
-              <TextInput
-                type="number"
-                min={0}
-                max={365}
-                value={reminder.leadDays}
-                className="w-24"
-                onChange={(event) =>
-                  set({ leadDays: Math.max(0, Math.min(365, Number(event.target.value) || 0)) })
-                }
-              />
-            </Field>
+            <div>
+              <span className="mb-1 block text-xs font-semibold tracking-wide text-muted uppercase">
+                Notification
+              </span>
+              <div className="flex items-center gap-2">
+                <TextInput
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={reminder.leadDays}
+                  className="w-20"
+                  onChange={(event) =>
+                    set({ leadDays: Math.max(0, Math.min(365, Number(event.target.value) || 0)) })
+                  }
+                />
+                <span className="text-xs text-muted">jours avant</span>
+              </div>
+            </div>
           </div>
 
           {/* --------------------------------------------------- Étiquettes */}

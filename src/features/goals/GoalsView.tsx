@@ -30,6 +30,7 @@ import {
   goalProgress,
   smartCriteria,
 } from '../../lib/goals'
+import { positionAtEnd, positionBetween } from '../../lib/ordering'
 import { CATEGORY_COLORS } from '../../lib/palette'
 import { useStore } from '../../lib/state'
 import { formatRange, periodPosition, periodWindowAt, shiftOnePeriod } from '../../lib/periods'
@@ -40,6 +41,12 @@ import {
   GOAL_PERIOD_LABELS,
 } from '../../lib/types'
 import type { Card, Goal, GoalCategory, GoalPeriod, ID } from '../../lib/types'
+
+/**
+ * Objectif en cours de glissement. Hors React : `dataTransfer.getData` est
+ * indisponible pendant le survol (dragover), seul le drop y a droit.
+ */
+let draggingGoalId: ID | null = null
 
 /** « 29 jours » : le user préfère les jours secs aux semaines converties. */
 function days(count: number): string {
@@ -119,6 +126,34 @@ export function GoalsView({
     if (goal) setEditing(goal.id)
   }
 
+  /** Le domaine visé peut-il recevoir ? Oui s'il n'est pas plein — ou si
+      l'objectif y est déjà (simple réordonnancement, le compte ne bouge pas). */
+  const canReceive = (category: GoalCategory) => {
+    const dragged = draggingGoalId ? store.goals.find((goal) => goal.id === draggingGoalId) : null
+    if (!dragged) return false
+    if (dragged.category === category) return true
+    const count = (byCategory.get(category) ?? []).filter(
+      (goal) => goal.status !== 'archived',
+    ).length
+    return count < 3
+  }
+
+  /** Dépose l'objectif traîné dans `category`, avant `before` (ou en fin). */
+  const dropGoal = (category: GoalCategory, before: Goal | null) => {
+    const id = draggingGoalId
+    draggingGoalId = null
+    if (!id || !canReceive(category)) return
+    const section = (byCategory.get(category) ?? []).filter((goal) => goal.id !== id)
+    let position: number
+    if (before) {
+      const index = section.findIndex((goal) => goal.id === before.id)
+      position = positionBetween(section[index - 1]?.position, before.position)
+    } else {
+      position = positionAtEnd(section.map((goal) => goal.position))
+    }
+    void store.updateGoal(id, { category, position })
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
       <div
@@ -179,7 +214,20 @@ export function GoalsView({
           const sectionGoals = byCategory.get(category) ?? []
           const activeCount = sectionGoals.filter((goal) => goal.status !== 'archived').length
           return (
-            <section key={category} className="flex flex-col gap-2">
+            <section
+              key={category}
+              className="flex flex-col gap-2 rounded-xl"
+              // Déposer sur la section (hors carte) = envoyer en fin de domaine.
+              onDragOver={(event) => {
+                if (!draggingGoalId || !canReceive(category)) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                dropGoal(category, null)
+              }}
+            >
               <div className="flex items-center gap-2">
                 <span
                   aria-hidden
@@ -214,6 +262,8 @@ export function GoalsView({
                     cards={cards}
                     onEdit={() => setEditing(goal.id)}
                     onMenu={(x, y) => setMenu({ goalId: goal.id, x, y })}
+                    onDropBefore={() => dropGoal(category, goal)}
+                    canDrop={() => canReceive(category)}
                     onOpenCard={onOpenCard}
                   />
                 ))
@@ -272,12 +322,17 @@ function GoalRow({
   cards,
   onEdit,
   onMenu,
+  onDropBefore,
+  canDrop,
   onOpenCard,
 }: {
   goal: Goal
   cards: Card[]
   onEdit: () => void
   onMenu: (x: number, y: number) => void
+  /** Dépôt d'un autre objectif sur cette carte : insertion juste avant elle. */
+  onDropBefore: () => void
+  canDrop: () => boolean
   onOpenCard: (id: ID) => void
 }) {
   const progress = goalProgress(goal, cards)
@@ -293,6 +348,26 @@ function GoalRow({
     // Toute la carte ouvre la fiche — les zones interactives intérieures
     // (tâches rattachées) coupent la propagation.
     <article
+      draggable
+      onDragStart={(event) => {
+        draggingGoalId = goal.id
+        event.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragEnd={() => {
+        draggingGoalId = null
+      }}
+      onDragOver={(event) => {
+        if (!draggingGoalId || draggingGoalId === goal.id || !canDrop()) return
+        event.preventDefault()
+        // Sans quoi la section parente traiterait aussi le dépôt.
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onDropBefore()
+      }}
       onClick={onEdit}
       onContextMenu={(event) => {
         event.preventDefault()
