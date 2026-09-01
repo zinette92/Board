@@ -473,19 +473,6 @@ function GoalRow({
         </div>
       ) : null}
 
-      {missing.length > 0 ? (
-        <ul className="mt-3 flex flex-col gap-0.5 rounded-lg bg-surface-2/70 p-2.5 text-xs text-muted">
-          {missing.map((criterion) => (
-            <li key={criterion.key}>
-              <strong className="text-ink">
-                {criterion.key} — {criterion.name} :
-              </strong>{' '}
-              {criterion.hint}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
       {linked.length > 0 ? (
         <details className="mt-3" onClick={(event) => event.stopPropagation()}>
           <summary className="cursor-pointer text-xs font-medium text-muted hover:text-ink">
