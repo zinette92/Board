@@ -120,26 +120,48 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
    * texte éditable, boutons) pour ne pas casser leur usage.
    */
   const [draggingItem, setDraggingItem] = useState<{ checklistId: ID; itemId: ID } | null>(null)
-  const [dropTarget, setDropTarget] = useState<{ checklistId: ID; itemId: ID | null } | null>(null)
+  /**
+   * Aperçu RÉEL pendant le glissement : les checklists réordonnées en direct,
+   * l'étape déjà à sa place d'arrivée. Rien n'est écrit tant qu'on n'a pas
+   * déposé — `null` = afficher l'ordre enregistré.
+   */
+  const [dragPreview, setDragPreview] = useState<Card['checklists'] | null>(null)
 
-  /** Déplace l'étape traînée avant `beforeId` (null = fin de la checklist). */
-  const moveItem = (checklistId: ID, beforeId: ID | null) => {
-    const source = draggingItem
-    setDraggingItem(null)
-    setDropTarget(null)
-    if (!card || !source) return
-    if (source.checklistId === checklistId && source.itemId === beforeId) return
-    const checklists = card.checklists.map((list) => ({ ...list, items: [...list.items] }))
-    const from = checklists.find((list) => list.id === source.checklistId)
-    const dest = checklists.find((list) => list.id === checklistId)
-    if (!from || !dest) return
+  /** Réordonne une copie des checklists : l'étape traînée passe avant `beforeId`. */
+  const reorder = (
+    lists: Card['checklists'],
+    source: { checklistId: ID; itemId: ID },
+    checklistId: ID,
+    beforeId: ID | null,
+  ): Card['checklists'] | null => {
+    const next = lists.map((list) => ({ ...list, items: [...list.items] }))
+    const from = next.find((list) => list.id === source.checklistId)
+    const dest = next.find((list) => list.id === checklistId)
+    if (!from || !dest) return null
     const index = from.items.findIndex((item) => item.id === source.itemId)
-    if (index === -1) return
+    if (index === -1) return null
     const [moved] = from.items.splice(index, 1)
-    const at = beforeId === null ? dest.items.length : dest.items.findIndex((item) => item.id === beforeId)
-    if (at === -1) return
+    const at =
+      beforeId === null ? dest.items.length : dest.items.findIndex((item) => item.id === beforeId)
+    if (at === -1) return null
     dest.items.splice(at, 0, moved)
-    void store.updateCard(card.id, { checklists })
+    return next
+  }
+
+  /** Survol : recalcule l'aperçu depuis l'ordre ENREGISTRÉ, jamais depuis
+      l'aperçu courant — sinon les déplacements s'accumuleraient. */
+  const previewMove = (checklistId: ID, beforeId: ID | null) => {
+    if (!card || !draggingItem) return
+    const next = reorder(card.checklists, draggingItem, checklistId, beforeId)
+    if (next) setDragPreview(next)
+  }
+
+  /** Dépôt : l'aperçu à l'écran devient l'ordre enregistré. */
+  const commitDrag = () => {
+    const preview = dragPreview
+    setDraggingItem(null)
+    setDragPreview(null)
+    if (card && preview) void store.updateCard(card.id, { checklists: preview })
   }
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
@@ -596,7 +618,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
         ) : null}
 
         {/* ------------------------------------------------------------- Checklists */}
-        {card.checklists.map((checklist) => {
+        {(dragPreview ?? card.checklists).map((checklist) => {
           const checkedCount = checklist.items.filter((item) => item.done).length
           const adding = addingItem[checklist.id] === true
           return (
@@ -633,25 +655,17 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 </div>
               ) : null}
               <ul
-                className={cx(
-                  'mb-1.5 flex flex-col gap-1 rounded-md',
-                  draggingItem &&
-                    dropTarget?.checklistId === checklist.id &&
-                    dropTarget.itemId === null &&
-                    'shadow-[0_2px_0_0_var(--accent)]',
-                )}
-                // Déposer hors d'une ligne = envoyer en fin de checklist.
+                className="mb-1.5 flex flex-col gap-1"
+                // Survoler hors d'une ligne = l'étape se pose en fin de liste.
                 onDragOver={(event) => {
                   if (!draggingItem) return
                   event.preventDefault()
                   event.dataTransfer.dropEffect = 'move'
-                  if (dropTarget?.checklistId !== checklist.id || dropTarget.itemId !== null) {
-                    setDropTarget({ checklistId: checklist.id, itemId: null })
-                  }
+                  previewMove(checklist.id, null)
                 }}
                 onDrop={(event) => {
                   event.preventDefault()
-                  moveItem(checklist.id, null)
+                  commitDrag()
                 }}
               >
                 {checklist.items.map((item) => (
@@ -670,8 +684,10 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       event.dataTransfer.effectAllowed = 'move'
                     }}
                     onDragEnd={() => {
+                      // Glissement abandonné (Échap, dépôt hors zone) :
+                      // l'aperçu s'annule, l'ordre enregistré revient.
                       setDraggingItem(null)
-                      setDropTarget(null)
+                      setDragPreview(null)
                     }}
                     onDragOver={(event) => {
                       if (!draggingItem || draggingItem.itemId === item.id) return
@@ -679,33 +695,21 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       // Sans quoi le <ul> parent traiterait aussi le survol.
                       event.stopPropagation()
                       event.dataTransfer.dropEffect = 'move'
-                      if (
-                        dropTarget?.itemId !== item.id ||
-                        dropTarget.checklistId !== checklist.id
-                      ) {
-                        setDropTarget({ checklistId: checklist.id, itemId: item.id })
-                      }
-                    }}
-                    onDragLeave={(event) => {
-                      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-                      setDropTarget((current) => (current?.itemId === item.id ? null : current))
+                      previewMove(checklist.id, item.id)
                     }}
                     onDrop={(event) => {
                       event.preventDefault()
                       event.stopPropagation()
-                      moveItem(checklist.id, item.id)
+                      commitDrag()
                     }}
                     className={cx(
                       // Main pointée + fond au survol, comme sur Trello.
                       'group -mx-1.5 flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-0.5 transition-colors hover:bg-surface-2 active:cursor-grabbing',
-                      // Aperçu transparent : la source s'efface sur place.
-                      draggingItem?.itemId === item.id && 'opacity-40',
-                      // Point d'insertion en ombre : zéro décalage de mise en
-                      // page, contrairement à une bordure qui fait sauter la
-                      // liste à chaque survol.
-                      dropTarget?.itemId === item.id &&
-                        dropTarget.checklistId === checklist.id &&
-                        'shadow-[0_-2px_0_0_var(--accent)]',
+                      // L'étape traînée est DÉJÀ à sa place d'arrivée : elle
+                      // s'estompe pour se distinguer, aucun liseré n'est
+                      // nécessaire puisque l'ordre affiché est le résultat.
+                      draggingItem?.itemId === item.id &&
+                        'bg-accent/10 opacity-60 ring-1 ring-accent/40',
                     )}
                   >
                     <input
