@@ -634,11 +634,11 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
               ) : null}
               <ul
                 className={cx(
-                  'mb-1.5 flex flex-col gap-1 rounded-md transition-all',
+                  'mb-1.5 flex flex-col gap-1 rounded-md',
                   draggingItem &&
                     dropTarget?.checklistId === checklist.id &&
                     dropTarget.itemId === null &&
-                    'border-b-2 border-b-accent',
+                    'shadow-[0_2px_0_0_var(--accent)]',
                 )}
                 // Déposer hors d'une ligne = envoyer en fin de checklist.
                 onDragOver={(event) => {
@@ -696,13 +696,16 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       moveItem(checklist.id, item.id)
                     }}
                     className={cx(
-                      'group flex cursor-grab items-center gap-2 rounded-md transition-all active:cursor-grabbing',
+                      // Main pointée + fond au survol, comme sur Trello.
+                      'group -mx-1.5 flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-0.5 transition-colors hover:bg-surface-2 active:cursor-grabbing',
                       // Aperçu transparent : la source s'efface sur place.
                       draggingItem?.itemId === item.id && 'opacity-40',
-                      // Liseré = point d'insertion, comme les cartes d'objectif.
+                      // Point d'insertion en ombre : zéro décalage de mise en
+                      // page, contrairement à une bordure qui fait sauter la
+                      // liste à chaque survol.
                       dropTarget?.itemId === item.id &&
                         dropTarget.checklistId === checklist.id &&
-                        'border-t-2 border-t-accent',
+                        'shadow-[0_-2px_0_0_var(--accent)]',
                     )}
                   >
                     <input
