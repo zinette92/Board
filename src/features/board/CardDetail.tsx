@@ -115,10 +115,10 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   /** Champs de saisie d'étape ouverts, par checklist. */
   const [addingItem, setAddingItem] = useState<Record<ID, boolean>>({})
   /**
-   * Glisser-déposer des étapes de checklist (natif). La poignée arme le
-   * `draggable` — la ligne reste sinon librement éditable (texte, dates).
+   * Glisser-déposer des étapes de checklist (natif). Toute la ligne se
+   * saisit ; le départ est refusé depuis les zones interactives (case,
+   * texte éditable, boutons) pour ne pas casser leur usage.
    */
-  const [dragArmed, setDragArmed] = useState<ID | null>(null)
   const [draggingItem, setDraggingItem] = useState<{ checklistId: ID; itemId: ID } | null>(null)
   const [dropTarget, setDropTarget] = useState<{ checklistId: ID; itemId: ID | null } | null>(null)
 
@@ -127,7 +127,6 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     const source = draggingItem
     setDraggingItem(null)
     setDropTarget(null)
-    setDragArmed(null)
     if (!card || !source) return
     if (source.checklistId === checklistId && source.itemId === beforeId) return
     const checklists = card.checklists.map((list) => ({ ...list, items: [...list.items] }))
@@ -658,15 +657,21 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 {checklist.items.map((item) => (
                   <li
                     key={item.id}
-                    draggable={dragArmed === item.id}
+                    draggable
                     onDragStart={(event) => {
+                      // Depuis la case, le texte (span .cursor-text) ou un
+                      // bouton : pas de glissement, l'élément garde son rôle.
+                      const origin = event.target as HTMLElement | null
+                      if (origin?.closest('input, button, textarea, .cursor-text')) {
+                        event.preventDefault()
+                        return
+                      }
                       setDraggingItem({ checklistId: checklist.id, itemId: item.id })
                       event.dataTransfer.effectAllowed = 'move'
                     }}
                     onDragEnd={() => {
                       setDraggingItem(null)
                       setDropTarget(null)
-                      setDragArmed(null)
                     }}
                     onDragOver={(event) => {
                       if (!draggingItem || draggingItem.itemId === item.id) return
@@ -691,7 +696,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       moveItem(checklist.id, item.id)
                     }}
                     className={cx(
-                      'group flex items-center gap-2 rounded-md transition-all',
+                      'group flex cursor-grab items-center gap-2 rounded-md transition-all active:cursor-grabbing',
                       // Aperçu transparent : la source s'efface sur place.
                       draggingItem?.itemId === item.id && 'opacity-40',
                       // Liseré = point d'insertion, comme les cartes d'objectif.
@@ -700,16 +705,6 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                         'border-t-2 border-t-accent',
                     )}
                   >
-                    {/* La poignée n'apparaît qu'au survol ; elle seule arme le drag. */}
-                    <span
-                      aria-hidden
-                      title="Glisser pour réordonner"
-                      onMouseDown={() => setDragArmed(item.id)}
-                      onMouseUp={() => setDragArmed(null)}
-                      className="shrink-0 cursor-grab text-xs text-muted opacity-0 transition-opacity select-none group-hover:opacity-100 active:cursor-grabbing"
-                    >
-                      ⋮⋮
-                    </span>
                     <input
                       type="checkbox"
                       className="size-4 shrink-0 accent-[var(--accent)]"
