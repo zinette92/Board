@@ -114,6 +114,34 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   const [editingDescription, setEditingDescription] = useState(false)
   /** Champs de saisie d'étape ouverts, par checklist. */
   const [addingItem, setAddingItem] = useState<Record<ID, boolean>>({})
+  /**
+   * Glisser-déposer des étapes de checklist (natif). La poignée arme le
+   * `draggable` — la ligne reste sinon librement éditable (texte, dates).
+   */
+  const [dragArmed, setDragArmed] = useState<ID | null>(null)
+  const [draggingItem, setDraggingItem] = useState<{ checklistId: ID; itemId: ID } | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ checklistId: ID; itemId: ID | null } | null>(null)
+
+  /** Déplace l'étape traînée avant `beforeId` (null = fin de la checklist). */
+  const moveItem = (checklistId: ID, beforeId: ID | null) => {
+    const source = draggingItem
+    setDraggingItem(null)
+    setDropTarget(null)
+    setDragArmed(null)
+    if (!card || !source) return
+    if (source.checklistId === checklistId && source.itemId === beforeId) return
+    const checklists = card.checklists.map((list) => ({ ...list, items: [...list.items] }))
+    const from = checklists.find((list) => list.id === source.checklistId)
+    const dest = checklists.find((list) => list.id === checklistId)
+    if (!from || !dest) return
+    const index = from.items.findIndex((item) => item.id === source.itemId)
+    if (index === -1) return
+    const [moved] = from.items.splice(index, 1)
+    const at = beforeId === null ? dest.items.length : dest.items.findIndex((item) => item.id === beforeId)
+    if (at === -1) return
+    dest.items.splice(at, 0, moved)
+    void store.updateCard(card.id, { checklists })
+  }
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -605,9 +633,83 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                   />
                 </div>
               ) : null}
-              <ul className="mb-1.5 flex flex-col gap-1">
+              <ul
+                className={cx(
+                  'mb-1.5 flex flex-col gap-1 rounded-md transition-all',
+                  draggingItem &&
+                    dropTarget?.checklistId === checklist.id &&
+                    dropTarget.itemId === null &&
+                    'border-b-2 border-b-accent',
+                )}
+                // Déposer hors d'une ligne = envoyer en fin de checklist.
+                onDragOver={(event) => {
+                  if (!draggingItem) return
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                  if (dropTarget?.checklistId !== checklist.id || dropTarget.itemId !== null) {
+                    setDropTarget({ checklistId: checklist.id, itemId: null })
+                  }
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  moveItem(checklist.id, null)
+                }}
+              >
                 {checklist.items.map((item) => (
-                  <li key={item.id} className="group flex items-center gap-2">
+                  <li
+                    key={item.id}
+                    draggable={dragArmed === item.id}
+                    onDragStart={(event) => {
+                      setDraggingItem({ checklistId: checklist.id, itemId: item.id })
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => {
+                      setDraggingItem(null)
+                      setDropTarget(null)
+                      setDragArmed(null)
+                    }}
+                    onDragOver={(event) => {
+                      if (!draggingItem || draggingItem.itemId === item.id) return
+                      event.preventDefault()
+                      // Sans quoi le <ul> parent traiterait aussi le survol.
+                      event.stopPropagation()
+                      event.dataTransfer.dropEffect = 'move'
+                      if (
+                        dropTarget?.itemId !== item.id ||
+                        dropTarget.checklistId !== checklist.id
+                      ) {
+                        setDropTarget({ checklistId: checklist.id, itemId: item.id })
+                      }
+                    }}
+                    onDragLeave={(event) => {
+                      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                      setDropTarget((current) => (current?.itemId === item.id ? null : current))
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      moveItem(checklist.id, item.id)
+                    }}
+                    className={cx(
+                      'group flex items-center gap-2 rounded-md transition-all',
+                      // Aperçu transparent : la source s'efface sur place.
+                      draggingItem?.itemId === item.id && 'opacity-40',
+                      // Liseré = point d'insertion, comme les cartes d'objectif.
+                      dropTarget?.itemId === item.id &&
+                        dropTarget.checklistId === checklist.id &&
+                        'border-t-2 border-t-accent',
+                    )}
+                  >
+                    {/* La poignée n'apparaît qu'au survol ; elle seule arme le drag. */}
+                    <span
+                      aria-hidden
+                      title="Glisser pour réordonner"
+                      onMouseDown={() => setDragArmed(item.id)}
+                      onMouseUp={() => setDragArmed(null)}
+                      className="shrink-0 cursor-grab text-xs text-muted opacity-0 transition-opacity select-none group-hover:opacity-100 active:cursor-grabbing"
+                    >
+                      ⋮⋮
+                    </span>
                     <input
                       type="checkbox"
                       className="size-4 shrink-0 accent-[var(--accent)]"
