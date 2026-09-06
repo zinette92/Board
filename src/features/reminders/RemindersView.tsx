@@ -772,24 +772,6 @@ function ReminderCard({
           {reminder.title || <span className="text-muted">Sans titre</span>}
         </span>
 
-        {labels.map((label) => (
-          <span
-            key={label.id}
-            className="rounded border px-1.5 py-px text-[10px] font-medium"
-            style={chipStyle(label.color)}
-          >
-            {label.name}
-          </span>
-        ))}
-        {orphanIds.length > 0 ? (
-          <span
-            title="Étiquette d'origine supprimée"
-            className="rounded border border-dashed px-1.5 py-px text-[10px] font-medium text-muted"
-          >
-            Autre
-          </span>
-        ) : null}
-
         {waiting > 0 ? (
           <Pill tone="warn">
             {waiting} à valider

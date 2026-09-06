@@ -127,33 +127,34 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
    */
   const [dragPreview, setDragPreview] = useState<Card['checklists'] | null>(null)
 
-  /** Réordonne une copie des checklists : l'étape traînée passe avant `beforeId`. */
-  const reorder = (
-    lists: Card['checklists'],
-    source: { checklistId: ID; itemId: ID },
-    checklistId: ID,
-    beforeId: ID | null,
-  ): Card['checklists'] | null => {
-    const next = lists.map((list) => ({ ...list, items: [...list.items] }))
-    const from = next.find((list) => list.id === source.checklistId)
-    const dest = next.find((list) => list.id === checklistId)
-    if (!from || !dest) return null
-    const index = from.items.findIndex((item) => item.id === source.itemId)
-    if (index === -1) return null
-    const [moved] = from.items.splice(index, 1)
-    const at =
-      beforeId === null ? dest.items.length : dest.items.findIndex((item) => item.id === beforeId)
-    if (at === -1) return null
-    dest.items.splice(at, 0, moved)
-    return next
-  }
+  /** Signature d'ordre, pour ne rien réécrire quand rien ne change. */
+  const orderKey = (lists: Card['checklists']) =>
+    lists.map((list) => `${list.id}:${list.items.map((item) => item.id).join(',')}`).join('|')
 
-  /** Survol : recalcule l'aperçu depuis l'ordre ENREGISTRÉ, jamais depuis
-      l'aperçu courant — sinon les déplacements s'accumuleraient. */
-  const previewMove = (checklistId: ID, beforeId: ID | null) => {
+  /**
+   * Survol pendant un glissement : l'étape se replace dans l'ordre AFFICHÉ.
+   *
+   * Deux règles rendent l'aperçu stable, là où un recalcul naïf faisait
+   * osciller la liste : on travaille sur l'ordre courant (et non sur l'ordre
+   * enregistré, qui rejoue le même déplacement en boucle), et l'insertion est
+   * décidée par la MOITIÉ de la ligne survolée — tant que le curseur ne
+   * franchit pas ce milieu, l'ordre produit est identique et aucun rendu n'a
+   * lieu.
+   */
+  const hoverMove = (checklistId: ID, overId: ID | null, after: boolean) => {
     if (!card || !draggingItem) return
-    const next = reorder(card.checklists, draggingItem, checklistId, beforeId)
-    if (next) setDragPreview(next)
+    const lists = dragPreview ?? card.checklists
+    const next = lists.map((list) => ({ ...list, items: [...list.items] }))
+    const from = next.find((list) => list.items.some((item) => item.id === draggingItem.itemId))
+    const dest = next.find((list) => list.id === checklistId)
+    if (!from || !dest) return
+    const [moved] = from.items.splice(
+      from.items.findIndex((item) => item.id === draggingItem.itemId),
+      1,
+    )
+    const over = overId === null ? -1 : dest.items.findIndex((item) => item.id === overId)
+    dest.items.splice(over === -1 ? dest.items.length : over + (after ? 1 : 0), 0, moved)
+    if (orderKey(next) !== orderKey(lists)) setDragPreview(next)
   }
 
   /** Dépôt : l'aperçu à l'écran devient l'ordre enregistré. */
@@ -656,12 +657,14 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
               ) : null}
               <ul
                 className="mb-1.5 flex flex-col gap-1"
-                // Survoler hors d'une ligne = l'étape se pose en fin de liste.
+                // Autorise le dépôt dans les interstices ; ne replace l'étape
+                // que sur une checklist VIDE, sinon les lignes s'en chargent
+                // (sans quoi le survol d'une ligne serait traité deux fois).
                 onDragOver={(event) => {
                   if (!draggingItem) return
                   event.preventDefault()
                   event.dataTransfer.dropEffect = 'move'
-                  previewMove(checklist.id, null)
+                  if (checklist.items.length === 0) hoverMove(checklist.id, null, false)
                 }}
                 onDrop={(event) => {
                   event.preventDefault()
@@ -695,7 +698,8 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       // Sans quoi le <ul> parent traiterait aussi le survol.
                       event.stopPropagation()
                       event.dataTransfer.dropEffect = 'move'
-                      previewMove(checklist.id, item.id)
+                      const box = event.currentTarget.getBoundingClientRect()
+                      hoverMove(checklist.id, item.id, event.clientY > box.top + box.height / 2)
                     }}
                     onDrop={(event) => {
                       event.preventDefault()
