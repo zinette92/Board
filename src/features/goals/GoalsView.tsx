@@ -885,6 +885,13 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
               value={draft.title}
               placeholder="Ex. Signer 3 nouveaux restaurants"
               onChange={(event) => set('title', event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || !isSteps) return
+                // Focus SYNCHRONE, par le DOM : attendre un rendu React
+                // ferait perdre la frappe suivante.
+                event.preventDefault()
+                document.querySelector<HTMLInputElement>('[data-step-input]')?.focus()
+              }}
             />
           </Field>
           {draft.kind === 'simple' ? (
@@ -1170,6 +1177,7 @@ function StepsEditor({
       >
         <TextInput
           value={text}
+          data-step-input
           placeholder="Ajouter une étape…"
           className="flex-1"
           onChange={(event) => setText(event.target.value)}
