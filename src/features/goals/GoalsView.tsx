@@ -176,7 +176,7 @@ export function GoalsView({
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
       <div
         className={cx(
-          'mx-auto flex max-w-4xl flex-col gap-4',
+          'mx-auto flex w-full max-w-7xl flex-col gap-4',
           // Panneau en verre par-dessus la photo : la colonne reste centrée,
           // le fond d'écran demeure visible de chaque côté.
           // Panneau OPAQUE aux couleurs du thème — même rendu qu'en plein écran,
@@ -228,7 +228,8 @@ export function GoalsView({
           ) : null}
         </div>
 
-        {GOAL_CATEGORIES.map((category) => {
+        <div className="grid items-start gap-4 md:grid-cols-3">
+          {GOAL_CATEGORIES.map((category) => {
           const sectionGoals = byCategory.get(category) ?? []
           const activeCount = sectionGoals.filter((goal) => goal.status !== 'archived').length
           return (
@@ -306,7 +307,8 @@ export function GoalsView({
               )}
             </section>
           )
-        })}
+          })}
+        </div>
 
         {/* Le feuilletage vit en bas, discret : ‹ position dans l'année ›. */}
         <div className="flex items-center justify-center gap-2 pt-1">
@@ -464,7 +466,7 @@ function GoalRow({
       </div>
 
       <div className="mt-3">
-        <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 text-sm">
+        <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-sm">
           <span>
             <strong className="text-base">{formatAmount(progress.current)}</strong>
             <span className="text-muted">
