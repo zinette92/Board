@@ -170,6 +170,34 @@ export type GoalStatus = 'active' | 'paused' | 'archived'
  * octobre, être à 900 ». C'est la trajectoire attendue, et c'est elle qui sert
  * à dire si l'on est en avance ou en retard (plutôt que le temps écoulé).
  */
+/**
+ * Forme d'un objectif, choisie à la création.
+ * - `simple` : atteint ou non, rien d'autre.
+ * - `steps` : une liste d'étapes à cocher ; l'avancement en découle.
+ * - `smart` : le formulaire complet (mesure, moyens, pertinence, paliers).
+ */
+export const GOAL_KINDS = ['simple', 'steps', 'smart'] as const
+export type GoalKind = (typeof GOAL_KINDS)[number]
+
+export const GOAL_KIND_LABELS: Record<GoalKind, string> = {
+  simple: 'Simple',
+  steps: 'Multi-étapes',
+  smart: 'SMART',
+}
+
+export const GOAL_KIND_HINTS: Record<GoalKind, string> = {
+  simple: "Un objectif tout ou rien : atteint, ou pas encore.",
+  steps: 'Une liste d’étapes à cocher — l’avancement suit les étapes faites.',
+  smart: 'Le formulaire complet : mesure chiffrée, moyens, pertinence, paliers.',
+}
+
+/** Étape d'un objectif « multi-étapes ». */
+export type GoalStep = {
+  id: ID
+  text: string
+  done: boolean
+}
+
 export type GoalMilestone = {
   id: ID
   /** Libellé libre, facultatif : la date et la cible se suffisent souvent. */
@@ -207,6 +235,9 @@ export type Goal = {
   milestones: GoalMilestone[]
   category: GoalCategory
   period: GoalPeriod
+  kind: GoalKind
+  /** Étapes du type « multi-étapes » ; vide pour les autres formes. */
+  steps: GoalStep[]
   status: GoalStatus
   position: number
   createdAt: string

@@ -6,6 +6,7 @@ import {
   ConfirmButton,
   Field,
   IconButton,
+  InlineEdit,
   Modal,
   Pill,
   ProgressBar,
@@ -37,10 +38,14 @@ import { formatRange, periodPosition, periodWindowAt, shiftOnePeriod } from '../
 import {
   GOAL_CATEGORIES,
   GOAL_CATEGORY_LABELS,
+  GOAL_KIND_HINTS,
+  GOAL_KIND_LABELS,
+  GOAL_KINDS,
   GOAL_PERIODS,
   GOAL_PERIOD_LABELS,
 } from '../../lib/types'
-import type { Card, Goal, GoalCategory, GoalPeriod, ID } from '../../lib/types'
+import { newId } from '../../lib/id'
+import type { Card, Goal, GoalCategory, GoalKind, GoalPeriod, ID } from '../../lib/types'
 
 /**
  * Objectif en cours de glissement. Hors React : `dataTransfer.getData` est
@@ -125,8 +130,12 @@ export function GoalsView({
     return map
   }, [store.goals, period, window.from, window.to, showArchived])
 
-  const create = async (category: GoalCategory) => {
-    const goal = await store.createGoal(category, period, window)
+  /** Domaine dont on vient de cliquer « + Objectif » : le choix de forme s'ouvre. */
+  const [choosing, setChoosing] = useState<GoalCategory | null>(null)
+
+  const create = async (category: GoalCategory, kind: GoalKind) => {
+    setChoosing(null)
+    const goal = await store.createGoal(category, period, window, kind)
     if (goal) setEditing(goal.id)
   }
 
@@ -263,7 +272,7 @@ export function GoalsView({
                     size="sm"
                     variant="ghost"
                     className="ml-auto"
-                    onClick={() => void create(category)}
+                    onClick={() => setChoosing(category)}
                   >
                     + Objectif
                   </Button>
@@ -329,6 +338,13 @@ export function GoalsView({
         </div>
       </div>
 
+      {choosing ? (
+        <KindChooser
+          category={choosing}
+          onClose={() => setChoosing(null)}
+          onPick={(kind) => void create(choosing, kind)}
+        />
+      ) : null}
       {editing ? <GoalEditor goalId={editing} onClose={() => setEditing(null)} /> : null}
       {menu ? (
         <GoalContextMenu
@@ -431,7 +447,9 @@ function GoalRow({
               {GOAL_CATEGORY_LABELS[goal.category]}
             </Pill>
             {goal.status === 'paused' ? <Pill tone="muted">en pause</Pill> : null}
-            {missing.length === 0 ? (
+            {goal.kind !== 'smart' ? (
+              <Pill tone="muted">{GOAL_KIND_LABELS[goal.kind]}</Pill>
+            ) : missing.length === 0 ? (
               <Pill tone="ok">SMART complet</Pill>
             ) : (
               <Pill tone="warn">{criteria.length - missing.length}/5 critères</Pill>
@@ -559,6 +577,35 @@ function GoalRow({
         </details>
       ) : null}
     </article>
+  )
+}
+
+/** Choix de la forme, avant d'ouvrir la fiche : simple, étapes ou SMART. */
+function KindChooser({
+  category,
+  onClose,
+  onPick,
+}: {
+  category: GoalCategory
+  onClose: () => void
+  onPick: (kind: GoalKind) => void
+}) {
+  return (
+    <Modal open onClose={onClose} title={`Nouvel objectif — ${GOAL_CATEGORY_LABELS[category]}`}>
+      <div className="flex flex-col gap-2">
+        {GOAL_KINDS.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => onPick(kind)}
+            className="rounded-xl border border-line p-3 text-left transition-colors hover:border-accent hover:bg-accent/5"
+          >
+            <span className="block text-sm font-semibold">{GOAL_KIND_LABELS[kind]}</span>
+            <span className="mt-0.5 block text-xs text-muted">{GOAL_KIND_HINTS[kind]}</span>
+          </button>
+        ))}
+      </div>
+    </Modal>
   )
 }
 
@@ -691,8 +738,20 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
     setDraft({ ...draft, [key]: value })
 
   const criteria = smartCriteria(draft)
+  const isSmart = draft.kind === 'smart'
+  const isSteps = draft.kind === 'steps'
 
   const persist = async (patch: Partial<Goal> = {}) => {
+    // Les formes simple et multi-étapes n'ont pas de mesure saisie : la cible
+    // et l'acquis se déduisent des étapes (ou du tout-ou-rien).
+    const derived: Partial<Goal> = isSmart
+      ? {}
+      : isSteps
+        ? {
+            target: draft.steps.length,
+            manualProgress: draft.steps.filter((step) => step.done).length,
+          }
+        : { target: 1, manualProgress: draft.manualProgress > 0 ? 1 : 0 }
     await store.updateGoal(goalId, {
       title: draft.title,
       target: draft.target,
@@ -701,8 +760,10 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
       relevant: draft.relevant,
       startsOn: draft.startsOn,
       dueOn: draft.dueOn,
+      steps: draft.steps,
       // Triés à l'enregistrement : l'affichage n'a plus à s'en soucier.
       milestones: [...draft.milestones].sort((a, b) => a.dueOn.localeCompare(b.dueOn)),
+      ...derived,
       ...patch,
     })
     onClose()
@@ -788,9 +849,21 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
               onChange={(event) => set('title', event.target.value)}
             />
           </Field>
+          {draft.kind === 'simple' ? (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="size-4 accent-[var(--accent)]"
+                checked={draft.manualProgress > 0}
+                onChange={(event) => set('manualProgress', event.target.checked ? 1 : 0)}
+              />
+              <span className="text-xs text-muted">Objectif atteint</span>
+            </label>
+          ) : null}
         </Criterion>
 
-        <Criterion letter="M" name="Mesurable" done={criteria[1].filled}>
+        {isSmart ? (
+          <Criterion letter="M" name="Mesurable" done={criteria[1].filled}>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Cible">
               <TextInput
@@ -814,9 +887,13 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
               />
             </Field>
           </div>
-        </Criterion>
+          </Criterion>
+        ) : null}
 
-        <Criterion letter="A" name="Atteignable" done={criteria[2].filled}>
+        {isSteps ? <StepsEditor draft={draft} setDraft={setDraft} /> : null}
+
+        {isSmart ? (
+          <Criterion letter="A" name="Atteignable" done={criteria[2].filled}>
           <Field label="Les moyens concrets" hint="Ce qui rend cet objectif réaliste, pas juste souhaitable.">
             <TextArea
               rows={2}
@@ -825,9 +902,11 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
               onChange={(event) => set('achievable', event.target.value)}
             />
           </Field>
-        </Criterion>
+          </Criterion>
+        ) : null}
 
-        <Criterion letter="R" name="Pertinent" done={criteria[3].filled}>
+        {isSmart ? (
+          <Criterion letter="R" name="Pertinent" done={criteria[3].filled}>
           <Field label="Pourquoi cet objectif compte">
             <TextArea
               rows={2}
@@ -836,9 +915,10 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
               onChange={(event) => set('relevant', event.target.value)}
             />
           </Field>
-        </Criterion>
+          </Criterion>
+        ) : null}
 
-        <Criterion letter="T" name="Temporel" done={criteria[4].filled}>
+        <Criterion letter="T" name="Temporel" done>
           <p className="text-sm">
             Échéance : <strong>{formatFullDay(draft.dueOn)}</strong>
             {precise ? '' : <span className="text-muted"> — fin de la période, par défaut.</span>}
@@ -873,12 +953,105 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
           ) : null}
         </Criterion>
 
-        <MilestonesEditor
-          goal={draft}
-          onChange={(milestones) => setDraft({ ...draft, milestones })}
-        />
+        {isSmart ? (
+          <MilestonesEditor
+            goal={draft}
+            onChange={(milestones) => setDraft({ ...draft, milestones })}
+          />
+        ) : null}
       </div>
     </Modal>
+  )
+}
+
+/** Étapes d'un objectif multi-étapes : l'avancement en découle directement. */
+function StepsEditor({
+  draft,
+  setDraft,
+}: {
+  draft: Goal
+  setDraft: (goal: Goal) => void
+}) {
+  const [text, setText] = useState('')
+  const done = draft.steps.filter((step) => step.done).length
+
+  const add = () => {
+    const value = text.trim()
+    if (!value) return
+    setDraft({ ...draft, steps: [...draft.steps, { id: newId(), text: value, done: false }] })
+    setText('')
+  }
+
+  return (
+    <section className="rounded-lg border border-line p-3">
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="grid size-6 shrink-0 place-items-center rounded-md bg-surface-2 text-xs">
+          ☑
+        </span>
+        <span className="text-sm font-semibold">Étapes</span>
+        <span className="text-xs text-muted tabular-nums">
+          {done}/{draft.steps.length}
+        </span>
+      </div>
+
+      <ul className="mb-2 flex flex-col gap-1">
+        {draft.steps.map((step) => (
+          <li key={step.id} className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              className="size-4 shrink-0 accent-[var(--accent)]"
+              checked={step.done}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  steps: draft.steps.map((item) =>
+                    item.id === step.id ? { ...item, done: event.target.checked } : item,
+                  ),
+                })
+              }
+            />
+            <InlineEdit
+              value={step.text}
+              className={cx('min-w-0 flex-1 text-sm', step.done && 'text-muted line-through')}
+              onSubmit={(next) =>
+                setDraft({
+                  ...draft,
+                  steps: draft.steps.map((item) =>
+                    item.id === step.id ? { ...item, text: next } : item,
+                  ),
+                })
+              }
+            />
+            <IconButton
+              label="Retirer cette étape"
+              onClick={() =>
+                setDraft({ ...draft, steps: draft.steps.filter((item) => item.id !== step.id) })
+              }
+            >
+              ✕
+            </IconButton>
+          </li>
+        ))}
+      </ul>
+
+      <form
+        className="flex gap-1.5"
+        onSubmit={(event) => {
+          event.preventDefault()
+          add()
+        }}
+      >
+        <TextInput
+          value={text}
+          placeholder="Ajouter une étape…"
+          className="flex-1"
+          onChange={(event) => setText(event.target.value)}
+        />
+        <Button type="submit" size="sm" disabled={!text.trim()}>
+          Ajouter
+        </Button>
+      </form>
+    </section>
   )
 }
 

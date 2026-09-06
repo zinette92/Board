@@ -49,6 +49,7 @@ import type {
   ChecklistItem,
   Goal,
   GoalCategory,
+  GoalKind,
   GoalPeriod,
   ID,
   Label,
@@ -142,6 +143,7 @@ export type Store = {
     category: GoalCategory,
     period?: GoalPeriod,
     window?: { from: string; to: string },
+    kind?: GoalKind,
   ) => Promise<Goal | undefined>
   updateGoal: (id: ID, patch: Partial<Goal>) => Promise<void>
   deleteGoal: (id: ID) => Promise<void>
@@ -715,13 +717,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* --------------------------------------------------------------- Objectifs */
-      createGoal: async (category, period = 'monthly', window = periodWindow(period)) => {
+      createGoal: async (category, period = 'monthly', window = periodWindow(period), kind = 'smart') => {
         // L'objectif naît calé sur la fenêtre de sa période — celle affichée
         // si l'on crée depuis une période passée ou à venir.
         const goal = makeGoal(category, positionAtEnd(snap().goals.map((item) => item.position)), {
           period,
+          kind,
           startsOn: window.from,
           dueOn: window.to,
+          // « Simple » est binaire : une unité à faire, dès la création.
+          target: kind === 'simple' ? 1 : 0,
         })
         await repo.goals.put(goal)
         apply({ goals: upsert(snap().goals, [goal]) })

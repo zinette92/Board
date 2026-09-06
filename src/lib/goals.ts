@@ -25,6 +25,17 @@ export type SmartCriterion = {
 
 /** Un objectif n'est SMART que si les cinq critères sont réellement renseignés. */
 export function smartCriteria(goal: Goal): SmartCriterion[] {
+  // Les formes « simple » et « multi-étapes » n'ont qu'un critère : un titre.
+  if (goal.kind !== 'smart') {
+    return [
+      {
+        key: 'S',
+        name: 'Spécifique',
+        hint: 'Donne un intitulé à cet objectif.',
+        filled: goal.title.trim().length > 0,
+      },
+    ]
+  }
   return [
     {
       key: 'S',

@@ -115,6 +115,8 @@ export function makeGoal(
     milestones: [],
     category,
     period: 'monthly',
+    kind: 'smart',
+    steps: [],
     status: 'active',
     position,
     createdAt: at,

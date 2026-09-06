@@ -26,6 +26,7 @@ import type {
   Goal,
   GoalCategory,
   GoalMilestone,
+  GoalStep,
   GoalStatus,
   ID,
   Label,
@@ -93,6 +94,8 @@ type GoalRow = {
   milestones: GoalMilestone[]
   category: GoalCategory
   period: string
+  kind: string
+  steps: GoalStep[]
   status: GoalStatus
   position: number
   created_at: string
@@ -234,8 +237,11 @@ const goal = {
     dueOn: r.due_on,
     milestones: r.milestones ?? [],
     category: r.category,
-    // Colonne ajoutée après coup : les lignes d'avant valent « mensuel ».
+    // Colonnes ajoutées après coup : les lignes d'avant valent « mensuel »
+    // et « SMART », la forme qui existait seule jusque-là.
     period: (r.period as Goal['period']) ?? 'monthly',
+    kind: (r.kind as Goal['kind']) ?? 'smart',
+    steps: r.steps ?? [],
     status: r.status,
     position: r.position,
     createdAt: r.created_at,
@@ -256,6 +262,8 @@ const goal = {
     milestones: g.milestones,
     category: g.category,
     period: g.period,
+    kind: g.kind,
+    steps: g.steps,
     status: g.status,
     position: g.position,
     created_at: g.createdAt,
