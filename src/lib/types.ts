@@ -196,6 +196,8 @@ export type GoalStep = {
   id: ID
   text: string
   done: boolean
+  /** Échéance propre à l'étape, `YYYY-MM-DD` — facultative. */
+  dueOn: string | null
 }
 
 export type GoalMilestone = {

@@ -17,6 +17,7 @@ import {
 import {
   addDays,
   daysBetween,
+  dueTone,
   formatDay,
   formatFullDay,
 } from '../../lib/dates'
@@ -484,6 +485,43 @@ function GoalRow({
         {/* Une seule stat : le % fait — le reste doublonnait la jauge et le compte. */}
         <div className="mt-1.5 text-xs text-muted">{Math.round(progress.ratio * 100)} % fait</div>
       </div>
+
+      {goal.kind === 'steps' && goal.steps.length > 0 ? (
+        <ol className="mt-3 flex flex-col gap-1">
+          {goal.steps.map((step) => (
+            <li key={step.id} className="flex items-center gap-2 text-sm">
+              <span
+                aria-hidden
+                className={cx(
+                  'grid size-4 shrink-0 place-items-center rounded-full border text-[9px] leading-none',
+                  step.done ? 'border-ok bg-ok text-white' : 'border-line text-transparent',
+                )}
+              >
+                ✓
+              </span>
+              <span className={cx('min-w-0 flex-1 truncate', step.done && 'text-muted line-through')}>
+                {step.text}
+              </span>
+              {step.dueOn ? (
+                <span
+                  className={cx(
+                    'shrink-0 text-xs tabular-nums',
+                    step.done
+                      ? 'text-muted'
+                      : dueTone(step.dueOn) === 'overdue'
+                        ? 'text-danger'
+                        : dueTone(step.dueOn) === 'today'
+                          ? 'text-warn'
+                          : 'text-muted',
+                  )}
+                >
+                  {formatDay(step.dueOn)}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
 
       {progress.milestones.length > 0 ? (
         <div className="mt-3">
@@ -978,9 +1016,18 @@ function StepsEditor({
   const add = () => {
     const value = text.trim()
     if (!value) return
-    setDraft({ ...draft, steps: [...draft.steps, { id: newId(), text: value, done: false }] })
+    setDraft({
+      ...draft,
+      steps: [...draft.steps, { id: newId(), text: value, done: false, dueOn: null }],
+    })
     setText('')
   }
+
+  const patchStep = (id: ID, patch: Partial<Goal['steps'][number]>) =>
+    setDraft({
+      ...draft,
+      steps: draft.steps.map((step) => (step.id === id ? { ...step, ...patch } : step)),
+    })
 
   return (
     <section className="rounded-lg border border-line p-3">
@@ -1013,14 +1060,28 @@ function StepsEditor({
             <InlineEdit
               value={step.text}
               className={cx('min-w-0 flex-1 text-sm', step.done && 'text-muted line-through')}
-              onSubmit={(next) =>
-                setDraft({
-                  ...draft,
-                  steps: draft.steps.map((item) =>
-                    item.id === step.id ? { ...item, text: next } : item,
-                  ),
-                })
-              }
+              onSubmit={(next) => patchStep(step.id, { text: next })}
+            />
+            {/* Échéance propre à l'étape : plus c'est daté, plus c'est tenable. */}
+            <DatePicker
+              day={step.dueOn}
+              onSelect={(day) => patchStep(step.id, { dueOn: day })}
+              onClear={() => patchStep(step.id, { dueOn: null })}
+              trigger={(toggle) => (
+                <Button
+                  size="sm"
+                  title={step.dueOn ? formatFullDay(step.dueOn) : 'Dater cette étape'}
+                  className={cx(
+                    'shrink-0',
+                    // Une étape faite ne crie plus au retard.
+                    step.dueOn && !step.done && dueTone(step.dueOn) === 'overdue' && 'text-danger',
+                    step.dueOn && !step.done && dueTone(step.dueOn) === 'today' && 'text-warn',
+                  )}
+                  onClick={toggle}
+                >
+                  📅{step.dueOn ? ` ${formatDay(step.dueOn)}` : ''}
+                </Button>
+              )}
             />
             <IconButton
               label="Retirer cette étape"

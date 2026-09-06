@@ -241,7 +241,8 @@ const goal = {
     // et « SMART », la forme qui existait seule jusque-là.
     period: (r.period as Goal['period']) ?? 'monthly',
     kind: (r.kind as Goal['kind']) ?? 'smart',
-    steps: r.steps ?? [],
+    // Les étapes d'avant la date propre n'ont pas le champ : on le normalise.
+    steps: (r.steps ?? []).map((step) => ({ ...step, dueOn: step.dueOn ?? null })),
     status: r.status,
     position: r.position,
     createdAt: r.created_at,
