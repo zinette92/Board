@@ -198,6 +198,11 @@ export type GoalStep = {
   done: boolean
   /** Échéance propre à l'étape, `YYYY-MM-DD` — facultative. */
   dueOn: string | null
+  /**
+   * Objectif d'une période plus courte issu de cette étape, s'il existe.
+   * Le lien est vivant : atteindre cet objectif coche l'étape ici.
+   */
+  goalId: ID | null
 }
 
 export type GoalMilestone = {
@@ -240,6 +245,9 @@ export type Goal = {
   kind: GoalKind
   /** Étapes du type « multi-étapes » ; vide pour les autres formes. */
   steps: GoalStep[]
+  /** Objectif dont cet objectif est issu (étape promue), s'il y en a un. */
+  sourceGoalId: ID | null
+  sourceStepId: ID | null
   status: GoalStatus
   position: number
   createdAt: string

@@ -35,7 +35,13 @@ import {
 import { positionAtEnd, positionBetween } from '../../lib/ordering'
 import { CATEGORY_COLORS } from '../../lib/palette'
 import { useStore } from '../../lib/state'
-import { formatRange, periodPosition, periodWindowAt, shiftOnePeriod } from '../../lib/periods'
+import {
+  SHORTER_PERIODS,
+  formatRange,
+  periodPosition,
+  periodWindowAt,
+  shiftOnePeriod,
+} from '../../lib/periods'
 import {
   GOAL_CATEGORIES,
   GOAL_CATEGORY_LABELS,
@@ -387,6 +393,8 @@ function GoalRow({
 }) {
   /** Un autre objectif plane au-dessus : il s'insérerait juste avant. */
   const [insertBefore, setInsertBefore] = useState(false)
+  /** Étapes repliées par défaut : toutes les cartes ont la même hauteur. */
+  const [stepsOpen, setStepsOpen] = useState(false)
   const progress = goalProgress(goal, cards)
   const criteria = smartCriteria(goal)
   const missing = criteria.filter((criterion) => !criterion.filled)
@@ -450,6 +458,7 @@ function GoalRow({
               {GOAL_CATEGORY_LABELS[goal.category]}
             </Pill>
             {goal.status === 'paused' ? <Pill tone="muted">en pause</Pill> : null}
+            {goal.sourceGoalId ? <Pill tone="accent">↗ issu d'une étape</Pill> : null}
             {goal.kind !== 'smart' ? (
               <Pill tone="muted">{GOAL_KIND_LABELS[goal.kind]}</Pill>
             ) : missing.length === 0 ? (
@@ -489,7 +498,20 @@ function GoalRow({
       </div>
 
       {goal.kind === 'steps' && goal.steps.length > 0 ? (
-        <ol className="mt-3 flex flex-col gap-1">
+        <>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              setStepsOpen(!stepsOpen)
+            }}
+            className="mt-2 flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
+          >
+            {stepsOpen ? '▾' : '▸'} {goal.steps.length} étape
+            {goal.steps.length > 1 ? 's' : ''}
+          </button>
+          {stepsOpen ? (
+        <ol className="mt-2 flex flex-col gap-1">
           {goal.steps.map((step) => (
             <li key={step.id} className="flex items-center gap-2 text-sm">
               <span
@@ -523,6 +545,8 @@ function GoalRow({
             </li>
           ))}
         </ol>
+          ) : null}
+        </>
       ) : null}
 
       {progress.milestones.length > 0 ? (
@@ -763,6 +787,9 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
   const store = useStore()
   const goal = store.goals.find((item) => item.id === goalId)
   const [draft, setDraft] = useState<Goal | undefined>(goal)
+  /** Version étroite de `setDraft`, pour les enfants qui ont un brouillon sûr. */
+  const setGoalDraft = (next: Goal | ((current: Goal) => Goal)) =>
+    setDraft((current) => (current ? (typeof next === 'function' ? next(current) : next) : current))
   /**
    * Échéance par défaut = la fin de la fenêtre de période ; la case à cocher
    * révèle un vrai choix de date. État local et non dérivé : cocher la case
@@ -781,9 +808,15 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
   const isSmart = draft.kind === 'smart'
   const isSteps = draft.kind === 'steps'
 
+  // Les formes simple et multi-étapes n'ont pas de mesure saisie : la cible
+  // et l'acquis se déduisent des étapes (ou du tout-ou-rien).
   const persist = async (patch: Partial<Goal> = {}) => {
-    // Les formes simple et multi-étapes n'ont pas de mesure saisie : la cible
-    // et l'acquis se déduisent des étapes (ou du tout-ou-rien).
+    await write(patch)
+    onClose()
+  }
+
+  /** Enregistre le brouillon SANS fermer — la promotion en a besoin. */
+  const write = async (patch: Partial<Goal> = {}) => {
     const derived: Partial<Goal> = isSmart
       ? {}
       : isSteps
@@ -806,7 +839,6 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
       ...derived,
       ...patch,
     })
-    onClose()
   }
 
   const save = () => persist()
@@ -937,7 +969,28 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
           </Criterion>
         ) : null}
 
-        {isSteps ? <StepsEditor draft={draft} setDraft={setDraft} /> : null}
+        {isSteps ? (
+          <StepsEditor
+            draft={draft}
+            setDraft={setGoalDraft}
+            onPromote={(stepId, period) => {
+              void (async () => {
+                // Le brouillon doit être en base avant la promotion, qui lit
+                // l'étape depuis le store ; puis on reporte l'identifiant
+                // rendu dans le brouillon, sinon la sauvegarde l'écraserait.
+                await write()
+                const created = await store.promoteStep(goalId, stepId, period)
+                if (!created) return
+                setGoalDraft((current) => ({
+                  ...current,
+                  steps: current.steps.map((step) =>
+                    step.id === stepId ? { ...step, goalId: created.id } : step,
+                  ),
+                }))
+              })()
+            }}
+          />
+        ) : null}
 
         {isSmart ? (
           <Criterion letter="A" name="Atteignable" done={criteria[2].filled}>
@@ -1015,11 +1068,18 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
 function StepsEditor({
   draft,
   setDraft,
+  onPromote,
 }: {
   draft: Goal
   setDraft: (goal: Goal) => void
+  /** Promeut l'étape en objectif d'une période plus courte. */
+  onPromote: (stepId: ID, period: GoalPeriod) => void
 }) {
+  const store = useStore()
   const [text, setText] = useState('')
+  /** Étape dont le menu « promouvoir » est ouvert. */
+  const [promoting, setPromoting] = useState<ID | null>(null)
+  const shorter = SHORTER_PERIODS[draft.period]
   /** Étape en cours de glissement — le brouillon fait office d'aperçu. */
   const [dragId, setDragId] = useState<ID | null>(null)
   const done = draft.steps.filter((step) => step.done).length
@@ -1048,7 +1108,7 @@ function StepsEditor({
     if (!value) return
     setDraft({
       ...draft,
-      steps: [...draft.steps, { id: newId(), text: value, done: false, dueOn: null }],
+      steps: [...draft.steps, { id: newId(), text: value, done: false, dueOn: null, goalId: null }],
     })
     setText('')
   }
@@ -1158,6 +1218,46 @@ function StepsEditor({
                 </Button>
               )}
             />
+            {/* Promotion : l'étape devient un objectif d'une période plus
+                courte, et le lien reste vivant dans les deux sens. */}
+            {step.goalId ? (
+              <Pill tone="accent" className="shrink-0">
+                ↗ {GOAL_PERIOD_LABELS[store.goals.find((g) => g.id === step.goalId)?.period ?? 'weekly']}
+              </Pill>
+            ) : shorter.length > 0 ? (
+              <div className="relative shrink-0">
+                <IconButton
+                  label="Transformer en objectif plus court"
+                  onClick={() => setPromoting(promoting === step.id ? null : step.id)}
+                >
+                  ↗
+                </IconButton>
+                {promoting === step.id ? (
+                  <>
+                    <div className="fixed inset-0 z-10" onMouseDown={() => setPromoting(null)} />
+                    <div className="absolute top-8 right-0 z-20 flex w-44 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
+                      <span className="px-1 pb-1 text-[11px] text-muted">
+                        En faire un objectif…
+                      </span>
+                      {shorter.map((period) => (
+                        <Button
+                          key={period}
+                          size="sm"
+                          variant="ghost"
+                          className="justify-start"
+                          onClick={() => {
+                            setPromoting(null)
+                            onPromote(step.id, period)
+                          }}
+                        >
+                          {GOAL_PERIOD_LABELS[period]}
+                        </Button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             <IconButton
               label="Retirer cette étape"
               onClick={() =>

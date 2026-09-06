@@ -64,6 +64,14 @@ export function periodPosition(period: GoalPeriod, from: string): string | null 
  * user, après deux essais de cycles de 90 jours ancrés.
  */
 
+/** Périodes strictement plus courtes, de la plus proche à la plus fine. */
+export const SHORTER_PERIODS: Record<GoalPeriod, GoalPeriod[]> = {
+  weekly: [],
+  monthly: ['weekly'],
+  quarter: ['monthly', 'weekly'],
+  yearly: ['quarter', 'monthly', 'weekly'],
+}
+
 export function periodWindow(period: GoalPeriod, day = today()): { from: string; to: string } {
   return periodWindowAt(period, 0, day)
 }

@@ -117,6 +117,8 @@ export function makeGoal(
     period: 'monthly',
     kind: 'smart',
     steps: [],
+    sourceGoalId: null,
+    sourceStepId: null,
     status: 'active',
     position,
     createdAt: at,

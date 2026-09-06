@@ -96,6 +96,8 @@ type GoalRow = {
   period: string
   kind: string
   steps: GoalStep[]
+  source_goal_id: string | null
+  source_step_id: string | null
   status: GoalStatus
   position: number
   created_at: string
@@ -241,8 +243,15 @@ const goal = {
     // et « SMART », la forme qui existait seule jusque-là.
     period: (r.period as Goal['period']) ?? 'monthly',
     kind: (r.kind as Goal['kind']) ?? 'smart',
-    // Les étapes d'avant la date propre n'ont pas le champ : on le normalise.
-    steps: (r.steps ?? []).map((step) => ({ ...step, dueOn: step.dueOn ?? null })),
+    // Les étapes d'avant la date propre ni l'objectif dérivé n'ont pas ces
+    // champs : on les normalise à la lecture.
+    steps: (r.steps ?? []).map((step) => ({
+      ...step,
+      dueOn: step.dueOn ?? null,
+      goalId: step.goalId ?? null,
+    })),
+    sourceGoalId: r.source_goal_id,
+    sourceStepId: r.source_step_id,
     status: r.status,
     position: r.position,
     createdAt: r.created_at,
@@ -265,6 +274,8 @@ const goal = {
     period: g.period,
     kind: g.kind,
     steps: g.steps,
+    source_goal_id: g.sourceGoalId,
+    source_step_id: g.sourceStepId,
     status: g.status,
     position: g.position,
     created_at: g.createdAt,

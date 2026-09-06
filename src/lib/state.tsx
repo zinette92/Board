@@ -28,6 +28,7 @@ import {
 import { addDays, today } from './dates'
 import { afterRun, isDue } from './models'
 import { newId, nowIso } from './id'
+import { goalProgress } from './goals'
 import { periodWindow } from './periods'
 import { prepareWallpaper } from './image'
 import {
@@ -147,6 +148,11 @@ export type Store = {
   ) => Promise<Goal | undefined>
   updateGoal: (id: ID, patch: Partial<Goal>) => Promise<void>
   deleteGoal: (id: ID) => Promise<void>
+  /**
+   * Transforme une étape en objectif d'une période plus courte, lié à elle.
+   * Renvoie l'objectif créé.
+   */
+  promoteStep: (goalId: ID, stepId: ID, period: GoalPeriod) => Promise<Goal | undefined>
 
   createReminder: (title: string) => Promise<Reminder | undefined>
   /** Valide (ou dévalide) UNE occurrence datée d'un rappel. */
@@ -340,6 +346,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await saveCards(
         needsRenumber(resulting.map((item) => item.position)) ? renumber(resulting) : [moved],
       )
+    }
+
+    /**
+     * Un objectif issu d'une étape reste collé à elle : dès qu'il est atteint,
+     * l'étape d'origine se coche — et se décoche s'il retombe sous la cible.
+     * Point de passage unique : toutes les écritures d'objectif passent par
+     * `updateGoal`.
+     */
+    const syncParentStep = async (goal: Goal) => {
+      if (!goal.sourceGoalId || !goal.sourceStepId) return
+      const parent = snap().goals.find((item) => item.id === goal.sourceGoalId)
+      const step = parent?.steps.find((item) => item.id === goal.sourceStepId)
+      if (!parent || !step) return
+      const done = goalProgress(goal, snap().cards).ratio >= 1
+      if (step.done === done) return
+      const next: Goal = {
+        ...parent,
+        steps: parent.steps.map((item) =>
+          item.id === goal.sourceStepId ? { ...item, done } : item,
+        ),
+        updatedAt: nowIso(),
+      }
+      await repo.goals.put(next)
+      apply({ goals: upsert(snap().goals, [next]) })
     }
 
     const placeCardAtIndex = async (card: Card, toListId: ID, targetIndex: number) => {
@@ -739,6 +769,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = { ...goal, ...patch, updatedAt: nowIso() }
         await repo.goals.put(next)
         apply({ goals: upsert(snap().goals, [next]) })
+        await syncParentStep(next)
+      },
+
+      promoteStep: async (goalId, stepId, period) => {
+        const parent = snap().goals.find((item) => item.id === goalId)
+        const step = parent?.steps.find((item) => item.id === stepId)
+        if (!parent || !step) return undefined
+
+        // La fenêtre se choisit autour de la date de l'étape quand elle en a
+        // une : promouvoir « 13 sept. » en hebdo doit viser CETTE semaine-là.
+        const window = periodWindow(period, step.dueOn ?? today())
+        const goal = makeGoal(
+          parent.category,
+          positionAtEnd(snap().goals.map((item) => item.position)),
+          {
+            period,
+            kind: 'simple',
+            title: step.text,
+            startsOn: window.from,
+            // L'échéance de l'étape prime, si elle tombe dans la fenêtre.
+            dueOn:
+              step.dueOn && step.dueOn >= window.from && step.dueOn <= window.to
+                ? step.dueOn
+                : window.to,
+            target: 1,
+            manualProgress: step.done ? 1 : 0,
+            sourceGoalId: parent.id,
+            sourceStepId: step.id,
+          },
+        )
+        const nextParent: Goal = {
+          ...parent,
+          steps: parent.steps.map((item) =>
+            item.id === stepId ? { ...item, goalId: goal.id } : item,
+          ),
+          updatedAt: nowIso(),
+        }
+        await repo.goals.put(goal)
+        await repo.goals.put(nextParent)
+        apply({ goals: upsert(snap().goals, [goal, nextParent]) })
+        return goal
       },
 
       deleteGoal: async (id) => {
