@@ -1011,7 +1011,28 @@ function StepsEditor({
   setDraft: (goal: Goal) => void
 }) {
   const [text, setText] = useState('')
+  /** Étape en cours de glissement — le brouillon fait office d'aperçu. */
+  const [dragId, setDragId] = useState<ID | null>(null)
   const done = draft.steps.filter((step) => step.done).length
+
+  /**
+   * Survol pendant un glissement : l'étape se replace dans l'ordre affiché.
+   * Mêmes règles que les checklists de carte — on travaille sur l'ordre
+   * courant, et l'insertion bascule au MILIEU de la ligne survolée, si bien
+   * qu'un survol stable ne produit aucun rendu.
+   */
+  const hoverStep = (overId: ID, after: boolean) => {
+    if (!dragId || dragId === overId) return
+    const items = [...draft.steps]
+    const from = items.findIndex((step) => step.id === dragId)
+    if (from === -1) return
+    const [moved] = items.splice(from, 1)
+    const over = items.findIndex((step) => step.id === overId)
+    if (over === -1) return
+    items.splice(over + (after ? 1 : 0), 0, moved)
+    const key = (list: typeof items) => list.map((step) => step.id).join(',')
+    if (key(items) !== key(draft.steps)) setDraft({ ...draft, steps: items })
+  }
 
   const add = () => {
     const value = text.trim()
@@ -1041,9 +1062,54 @@ function StepsEditor({
         </span>
       </div>
 
-      <ul className="mb-2 flex flex-col gap-1">
+      <ul
+        className="mb-2 flex flex-col gap-1"
+        // Autorise le dépôt dans les interstices ; le replacement est déjà
+        // fait par les lignes elles-mêmes.
+        onDragOver={(event) => {
+          if (!dragId) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
+        }}
+        onDrop={(event) => {
+          event.preventDefault()
+          setDragId(null)
+        }}
+      >
         {draft.steps.map((step) => (
-          <li key={step.id} className="flex items-center gap-2">
+          <li
+            key={step.id}
+            draggable
+            onDragStart={(event) => {
+              // Depuis la case, le texte éditable ou un bouton : pas de
+              // glissement, l'élément garde son rôle.
+              const origin = event.target as HTMLElement | null
+              if (origin?.closest('input, button, textarea, .cursor-text')) {
+                event.preventDefault()
+                return
+              }
+              setDragId(step.id)
+              event.dataTransfer.effectAllowed = 'move'
+            }}
+            onDragEnd={() => setDragId(null)}
+            onDragOver={(event) => {
+              if (!dragId || dragId === step.id) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+              const box = event.currentTarget.getBoundingClientRect()
+              hoverStep(step.id, event.clientY > box.top + box.height / 2)
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              setDragId(null)
+            }}
+            className={cx(
+              '-mx-1.5 flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-0.5 transition-colors hover:bg-surface-2 active:cursor-grabbing',
+              // L'étape traînée est déjà à sa place d'arrivée : elle s'estompe
+              // pour rester repérable, aucun liseré n'est nécessaire.
+              dragId === step.id && 'bg-accent/10 opacity-60 ring-1 ring-accent/40',
+            )}
+          >
             <input
               type="checkbox"
               className="size-4 shrink-0 accent-[var(--accent)]"
