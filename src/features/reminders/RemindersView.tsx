@@ -82,11 +82,6 @@ function repeatFor(mode: RepeatMode, previous: Repeat | null): Repeat | null {
  * s'édite dans sa propre carte dépliable — titre, note, rythme, jour et heure,
  * étiquette, pré-avis.
  */
-/** `true` si le rappel porte une référence d'étiquette qui ne pointe plus vers rien. */
-function hasOrphanLabel(reminder: Reminder, labelIds: Set<ID>): boolean {
-  return reminder.labelIds.some((id) => !labelIds.has(id))
-}
-
 type ReminderScope = 'weekly' | 'monthly' | 'all'
 
 /**
@@ -95,11 +90,9 @@ type ReminderScope = 'weekly' | 'monthly' | 'all'
  * donc un canal parallèle pour savoir quoi accepter.
  */
 let draggingReminderId: ID | null = null
-type LabelFilter = 'all' | 'other' | ID
 
 export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
   const store = useStore()
-  const [draft, setDraft] = useState('')
   const [openId, setOpenId] = useState<ID | null>(null)
   /** Menu contextuel (clic droit sur une ligne) : quel rappel, où. */
   const [menu, setMenu] = useState<{ reminderId: ID; x: number; y: number } | null>(null)
@@ -113,7 +106,6 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
       ? saved
       : 'monthly'
   })
-  const [labelFilter, setLabelFilter] = useState<LabelFilter>('all')
 
   useEffect(() => {
     localStorage.setItem('perso-board:reminders-scope', scope)
@@ -157,16 +149,9 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
     })
   }, [store.reminders, day])
 
-  const labelIds = useMemo(() => new Set(store.labels.map((label) => label.id)), [store.labels])
-  const anyOrphan = useMemo(
-    () => store.reminders.some((reminder) => hasOrphanLabel(reminder, labelIds)),
-    [store.reminders, labelIds],
-  )
-
   /**
    * Fenêtré : les rappels ayant au moins une occurrence dans la fenêtre,
-   * triés par leur première occurrence dedans. « Tous » : tout, avec le
-   * filtre par étiquette.
+   * triés par leur première occurrence dedans. « Tous » : tout.
    */
   const filtered = useMemo(() => {
     if (window) {
@@ -178,14 +163,8 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
         .filter((entry): entry is { reminder: Reminder; on: string } => entry.on !== null)
         .sort((a, b) => a.on.localeCompare(b.on))
     }
-    const all =
-      labelFilter === 'all'
-        ? sorted
-        : labelFilter === 'other'
-          ? sorted.filter((reminder) => hasOrphanLabel(reminder, labelIds))
-          : sorted.filter((reminder) => reminder.labelIds.includes(labelFilter))
-    return all.map((reminder) => ({ reminder, on: null as string | null }))
-  }, [window, sorted, labelFilter, labelIds])
+    return sorted.map((reminder) => ({ reminder, on: null as string | null }))
+  }, [window, sorted])
 
   /** Rangés par domaine — les trois mêmes sections que les Objectifs. */
   const byDomain = useMemo(() => {
@@ -195,11 +174,9 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
     return map
   }, [filtered])
 
-  const add = async () => {
-    const title = draft.trim()
-    if (!title) return
-    const created = await store.createReminder(title)
-    setDraft('')
+  /** « + » d'un domaine : un rappel vide y naît et sa fiche s'ouvre aussitôt. */
+  const create = async (category: Reminder['domain']) => {
+    const created = await store.createReminder('', category)
     if (created) setOpenId(created.id)
   }
 
@@ -237,8 +214,6 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
               </button>
             ))}
           </div>
-
-          <NotificationSwitch />
         </div>
 
         {window ? (
@@ -260,68 +235,6 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
         ) : null}
 
         <PendingPanel pending={pending} notices={notices} />
-
-        <form
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void add()
-          }}
-        >
-          <TextInput
-            value={draft}
-            placeholder="Nouveau rappel — ex. Déclaration d'impôts"
-            className="min-w-48 flex-1"
-            onChange={(event) => setDraft(event.target.value)}
-          />
-          <Button type="submit" variant="primary" disabled={!draft.trim()}>
-            Ajouter
-          </Button>
-        </form>
-
-        {scope === 'all' && store.labels.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setLabelFilter('all')}
-              className={cx(
-                'rounded border px-2 py-0.5 text-xs font-medium transition-opacity',
-                labelFilter === 'all'
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-line text-muted hover:text-ink',
-              )}
-            >
-              Toutes
-            </button>
-            {store.labels.map((label) => (
-              <button
-                key={label.id}
-                type="button"
-                onClick={() => setLabelFilter(label.id)}
-                className={cx(
-                  'rounded border px-2 py-0.5 text-xs font-medium transition-opacity',
-                  labelFilter === label.id ? 'ring-1 ring-accent' : 'opacity-70 hover:opacity-100',
-                )}
-                style={chipStyle(label.color)}
-              >
-                {label.name}
-              </button>
-            ))}
-            {anyOrphan ? (
-              <button
-                type="button"
-                title="Rappels dont l'étiquette d'origine a été supprimée"
-                onClick={() => setLabelFilter('other')}
-                className={cx(
-                  'rounded border border-dashed px-2 py-0.5 text-xs font-medium text-muted transition-opacity',
-                  labelFilter === 'other' ? 'border-accent text-accent' : 'hover:text-ink',
-                )}
-              >
-                Autre
-              </button>
-            ) : null}
-          </div>
-        ) : null}
 
         {GOAL_CATEGORIES.map((category) => {
           const entries = byDomain.get(category) ?? []
@@ -364,6 +277,14 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
                   {GOAL_CATEGORY_LABELS[category]}
                 </h3>
                 <span className="text-xs text-muted tabular-nums">{entries.length}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-auto"
+                  onClick={() => void create(category)}
+                >
+                  + Rappel
+                </Button>
               </div>
               {entries.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-line p-4 text-center text-xs text-muted">
@@ -638,7 +559,7 @@ function PendingPanel({
 
 /* ------------------------------------------------------------ Notifications */
 
-function NotificationSwitch() {
+export function NotificationSwitch() {
   const [state, setState] = useState<NotifyPermission>(permissionState)
 
   if (state === 'unsupported') return null

@@ -154,7 +154,7 @@ export type Store = {
    */
   promoteStep: (goalId: ID, stepId: ID, period: GoalPeriod) => Promise<Goal | undefined>
 
-  createReminder: (title: string) => Promise<Reminder | undefined>
+  createReminder: (title: string, domain?: Reminder['domain']) => Promise<Reminder | undefined>
   /** Valide (ou dévalide) UNE occurrence datée d'un rappel. */
   setReminderDone: (id: ID, on: string, done: boolean) => Promise<void>
   updateReminder: (id: ID, patch: Partial<Reminder>) => Promise<void>
@@ -877,8 +877,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* ------------------------------------------------------------------ Rappels */
-      createReminder: async (title) => {
-        const reminder = makeReminder(title)
+      createReminder: async (title, domain) => {
+        const reminder = { ...makeReminder(title), ...(domain ? { domain } : {}) }
         await repo.reminders.put(reminder)
         apply({ reminders: upsert(snap().reminders, [reminder]) })
         return reminder

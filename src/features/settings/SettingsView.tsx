@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button, ConfirmButton, Field, IconButton, TextInput, cx } from '../../components/ui'
 import { LABEL_COLOR_HEX, LABEL_COLOR_NAMES, chipStyle, labelColorToHex } from '../../lib/palette'
 import { SignOutButton } from '../auth/AuthGate'
+import { NotificationSwitch } from '../reminders/RemindersView'
 import { gcalStatus } from '../../lib/gcal'
 import type { GcalStatus } from '../../lib/gcal'
 import { useInstallPrompt } from '../../lib/install'
@@ -211,6 +212,16 @@ export function SettingsView({
 
         {/* --------------------------------------------------- Application */}
         <InstallSection />
+
+        {/* --------------------------------------------------- Notifications */}
+        <section className="rounded-xl border border-line bg-surface p-4">
+          <h3 className="mb-1 text-sm font-semibold">Notifications</h3>
+          <p className="mb-3 text-xs text-muted">
+            Une notification système le jour d’un rappel — et en pré-avis si tu l’as réglé — tant
+            que l’application est ouverte dans un onglet.
+          </p>
+          <NotificationSwitch />
+        </section>
 
         {/* ------------------------------------------------- Google Agenda */}
         <GoogleSection />
