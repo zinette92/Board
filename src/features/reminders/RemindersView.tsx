@@ -94,6 +94,8 @@ let draggingReminderId: ID | null = null
 export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
   const store = useStore()
   const [openId, setOpenId] = useState<ID | null>(null)
+  /** Rappel tout juste créé, pas encore validé : fermer sans « Terminé » l'efface. */
+  const [pendingId, setPendingId] = useState<ID | null>(null)
   /** Menu contextuel (clic droit sur une ligne) : quel rappel, où. */
   const [menu, setMenu] = useState<{ reminderId: ID; x: number; y: number } | null>(null)
   /** Rappel en cours de glissement (état : les cibles se re-rendent). */
@@ -177,7 +179,9 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
   /** « + » d'un domaine : un rappel vide y naît et sa fiche s'ouvre aussitôt. */
   const create = async (category: Reminder['domain']) => {
     const created = await store.createReminder('', category)
-    if (created) setOpenId(created.id)
+    if (!created) return
+    setPendingId(created.id)
+    setOpenId(created.id)
   }
 
   return (
@@ -299,7 +303,19 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
                       reminder={reminder}
                       showOn={on}
                       open={openId === reminder.id}
-                      onToggle={() => setOpenId(openId === reminder.id ? null : reminder.id)}
+                      onToggle={() => {
+                        // Fermeture sans validation d'un rappel encore en
+                        // attente : on annule l'ajout.
+                        if (openId === reminder.id && pendingId === reminder.id) {
+                          void store.deleteReminder(reminder.id)
+                          setPendingId(null)
+                        }
+                        setOpenId(openId === reminder.id ? null : reminder.id)
+                      }}
+                      onDone={() => {
+                        setPendingId(null)
+                        setOpenId(null)
+                      }}
                       onMenu={(x, y) => setMenu({ reminderId: reminder.id, x, y })}
                       dragging={draggingId === reminder.id}
                       onDragChange={(id) => {
@@ -659,6 +675,7 @@ function ReminderCard({
   showOn,
   open,
   onToggle,
+  onDone,
   onMenu,
   dragging,
   onDragChange,
@@ -667,7 +684,10 @@ function ReminderCard({
   /** Occurrence à afficher (vue fenêtrée) ; null = la prochaine en absolu. */
   showOn: string | null
   open: boolean
+  /** Ouvre la fiche, ou la ferme SANS valider (un ajout en attente est annulé). */
   onToggle: () => void
+  /** « Terminé » : la fiche se ferme et l'ajout est acquis. */
+  onDone: () => void
   onMenu: (x: number, y: number) => void
   /** Vraie pour la ligne en cours de glissement : elle s'estompe sur place. */
   dragging: boolean
@@ -794,19 +814,69 @@ function ReminderCard({
               confirmLabel="Supprimer pour de bon"
               onConfirm={() => {
                 // Fermer AVANT de supprimer : la fiche perdrait sa source.
-                onToggle()
+                onDone()
                 void store.deleteReminder(reminder.id)
               }}
             >
               Supprimer
             </ConfirmButton>
-            <Button variant="primary" onClick={onToggle}>
+            <Button variant="primary" onClick={onDone}>
               Terminé
             </Button>
           </>
         }
       >
         <div className="flex flex-col gap-3">
+          {/* --------------------------------------------------- Étiquettes */}
+          <div>
+            <span className="mb-1 block text-xs font-semibold tracking-wide text-muted uppercase">
+              Étiquette
+            </span>
+            {store.labels.length === 0 && orphanIds.length === 0 ? (
+              <p className="text-xs text-muted">Crée des étiquettes dans les réglages ⚙.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {store.labels.map((label) => {
+                  const on = reminder.labelIds.includes(label.id)
+                  return (
+                    <button
+                      key={label.id}
+                      type="button"
+                      // Une seule étiquette par rappel : choisir remplace,
+                      // re-cliquer retire.
+                      onClick={() => set({ labelIds: on ? [] : [label.id] })}
+                      className={cx(
+                        'rounded border px-2 py-0.5 text-xs font-medium transition-opacity',
+                        on ? 'ring-1 ring-accent' : 'opacity-60 hover:opacity-100',
+                      )}
+                      style={chipStyle(label.color)}
+                    >
+                      {on ? '✓ ' : ''}
+                      {label.name}
+                    </button>
+                  )
+                })}
+                {/* Étiquette(s) supprimée(s) des réglages depuis : la référence
+                    reste sur ce rappel jusqu'à détachement explicite — voir
+                    hasOrphanLabel plus haut. */}
+                {orphanIds.length > 0 ? (
+                  <button
+                    type="button"
+                    title="Cette étiquette a été supprimée des réglages : détacher la référence"
+                    onClick={() =>
+                      set({
+                        labelIds: reminder.labelIds.filter((id) => !orphanIds.includes(id)),
+                      })
+                    }
+                    className="rounded border border-dashed px-2 py-0.5 text-xs font-medium text-muted hover:text-ink"
+                  >
+                    ✕ Autre (détacher)
+                  </button>
+                ) : null}
+              </div>
+            )}
+          </div>
+
           <Field label="Titre">
             <TextInput
               value={reminder.title}
@@ -964,56 +1034,6 @@ function ReminderCard({
                 <span className="text-xs text-muted">jours avant</span>
               </div>
             </div>
-          </div>
-
-          {/* --------------------------------------------------- Étiquettes */}
-          <div>
-            <span className="mb-1 block text-xs font-semibold tracking-wide text-muted uppercase">
-              Étiquette
-            </span>
-            {store.labels.length === 0 && orphanIds.length === 0 ? (
-              <p className="text-xs text-muted">Crée des étiquettes dans les réglages ⚙.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {store.labels.map((label) => {
-                  const on = reminder.labelIds.includes(label.id)
-                  return (
-                    <button
-                      key={label.id}
-                      type="button"
-                      // Une seule étiquette par rappel : choisir remplace,
-                      // re-cliquer retire.
-                      onClick={() => set({ labelIds: on ? [] : [label.id] })}
-                      className={cx(
-                        'rounded border px-2 py-0.5 text-xs font-medium transition-opacity',
-                        on ? 'ring-1 ring-accent' : 'opacity-60 hover:opacity-100',
-                      )}
-                      style={chipStyle(label.color)}
-                    >
-                      {on ? '✓ ' : ''}
-                      {label.name}
-                    </button>
-                  )
-                })}
-                {/* Étiquette(s) supprimée(s) des réglages depuis : la référence
-                    reste sur ce rappel jusqu'à détachement explicite — voir
-                    hasOrphanLabel plus haut. */}
-                {orphanIds.length > 0 ? (
-                  <button
-                    type="button"
-                    title="Cette étiquette a été supprimée des réglages : détacher la référence"
-                    onClick={() =>
-                      set({
-                        labelIds: reminder.labelIds.filter((id) => !orphanIds.includes(id)),
-                      })
-                    }
-                    className="rounded border border-dashed px-2 py-0.5 text-xs font-medium text-muted hover:text-ink"
-                  >
-                    ✕ Autre (détacher)
-                  </button>
-                ) : null}
-              </div>
-            )}
           </div>
 
         </div>

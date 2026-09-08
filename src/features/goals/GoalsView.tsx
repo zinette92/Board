@@ -74,6 +74,8 @@ export function GoalsView({
 }) {
   const store = useStore()
   const [editing, setEditing] = useState<ID | null>(null)
+  /** Objectif tout juste créé, pas encore enregistré : annuler l'efface. */
+  const [pendingGoal, setPendingGoal] = useState<ID | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   /** Menu contextuel (clic droit sur une carte) : quel objectif, où. */
   const [menu, setMenu] = useState<{ goalId: ID; x: number; y: number } | null>(null)
@@ -143,7 +145,9 @@ export function GoalsView({
   const create = async (category: GoalCategory, kind: GoalKind) => {
     setChoosing(null)
     const goal = await store.createGoal(category, period, window, kind)
-    if (goal) setEditing(goal.id)
+    if (!goal) return
+    setPendingGoal(goal.id)
+    setEditing(goal.id)
   }
 
   /** Le domaine visé peut-il recevoir ? Oui s'il n'est pas plein — ou si
@@ -354,7 +358,17 @@ export function GoalsView({
           onPick={(kind) => void create(choosing, kind)}
         />
       ) : null}
-      {editing ? <GoalEditor goalId={editing} onClose={() => setEditing(null)} /> : null}
+      {editing ? (
+        <GoalEditor
+          goalId={editing}
+          onClose={(saved) => {
+            // Ajout en attente refermé sans enregistrer : on l'annule.
+            if (!saved && pendingGoal === editing) void store.deleteGoal(editing)
+            setPendingGoal(null)
+            setEditing(null)
+          }}
+        />
+      ) : null}
       {menu ? (
         <GoalContextMenu
           goalId={menu.goalId}
@@ -785,7 +799,14 @@ function GoalContextMenu({
   )
 }
 
-function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
+function GoalEditor({
+  goalId,
+  onClose,
+}: {
+  goalId: ID
+  /** `saved` vrai quand la fiche se ferme APRÈS une écriture. */
+  onClose: (saved?: boolean) => void
+}) {
   const store = useStore()
   const goal = store.goals.find((item) => item.id === goalId)
   const [draft, setDraft] = useState<Goal | undefined>(goal)
@@ -814,7 +835,7 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
   // et l'acquis se déduisent des étapes (ou du tout-ou-rien).
   const persist = async (patch: Partial<Goal> = {}) => {
     await write(patch)
-    onClose()
+    onClose(true)
   }
 
   /** Enregistre le brouillon SANS fermer — la promotion en a besoin. */
@@ -897,14 +918,15 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
           <ConfirmButton
             size="md"
             onConfirm={() => {
-              onClose()
+              // Supprimé explicitement : la vue n'a plus rien à annuler.
+              onClose(true)
               void store.deleteGoal(goalId)
             }}
             confirmLabel="Supprimer pour de bon"
           >
             Supprimer
           </ConfirmButton>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={() => onClose()}>
             Annuler
           </Button>
           <Button variant="primary" onClick={() => void save()}>
