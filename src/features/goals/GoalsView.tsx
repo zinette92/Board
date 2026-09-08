@@ -493,24 +493,28 @@ function GoalRow({
           </span>
         </div>
         <ProgressBar ratio={progress.ratio} tone={barTone} marker={progress.timeRatio} />
-        {/* Une seule stat : le % fait — le reste doublonnait la jauge et le compte. */}
-        <div className="mt-1.5 text-xs text-muted">{Math.round(progress.ratio * 100)} % fait</div>
+        {/* Une seule ligne : le % fait à gauche, le compte d'étapes à droite.
+            Rien ne s'ajoute SOUS la carte tant qu'on ne déplie pas — toutes
+            les cartes, avec ou sans étapes, gardent la même hauteur. */}
+        <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted">
+          <span>{Math.round(progress.ratio * 100)} % fait</span>
+          {goal.kind === 'steps' && goal.steps.length > 0 ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                setStepsOpen(!stepsOpen)
+              }}
+              className="flex items-center gap-1 transition-colors hover:text-ink"
+            >
+              {stepsOpen ? '▾' : '▸'} {goal.steps.length} étape
+              {goal.steps.length > 1 ? 's' : ''}
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      {goal.kind === 'steps' && goal.steps.length > 0 ? (
-        <>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              setStepsOpen(!stepsOpen)
-            }}
-            className="mt-2 flex items-center gap-1 text-xs text-muted transition-colors hover:text-ink"
-          >
-            {stepsOpen ? '▾' : '▸'} {goal.steps.length} étape
-            {goal.steps.length > 1 ? 's' : ''}
-          </button>
-          {stepsOpen ? (
+      {goal.kind === 'steps' && goal.steps.length > 0 && stepsOpen ? (
         <ol className="mt-2 flex flex-col gap-1">
           {goal.steps.map((step) => (
             <li key={step.id} className="flex items-center gap-2 text-sm">
@@ -545,8 +549,6 @@ function GoalRow({
             </li>
           ))}
         </ol>
-          ) : null}
-        </>
       ) : null}
 
       {progress.milestones.length > 0 ? (
