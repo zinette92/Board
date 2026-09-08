@@ -991,6 +991,20 @@ function GoalEditor({ goalId, onClose }: { goalId: ID; onClose: () => void }) {
                 }))
               })()
             }}
+            onUnpromote={(stepId) => {
+              void (async () => {
+                // On délie d'abord — et on l'écrit — puis on supprime l'objectif
+                // dérivé : dans cet ordre, aucune synchronisation ne peut
+                // retomber sur un lien mort.
+                const linked = draft.steps.find((step) => step.id === stepId)?.goalId ?? null
+                const steps = draft.steps.map((step) =>
+                  step.id === stepId ? { ...step, goalId: null } : step,
+                )
+                setGoalDraft((current) => ({ ...current, steps }))
+                await store.updateGoal(goalId, { steps })
+                if (linked) await store.deleteGoal(linked)
+              })()
+            }}
           />
         ) : null}
 
@@ -1071,11 +1085,14 @@ function StepsEditor({
   draft,
   setDraft,
   onPromote,
+  onUnpromote,
 }: {
   draft: Goal
   setDraft: (goal: Goal) => void
   /** Promeut l'étape en objectif d'une période plus courte. */
   onPromote: (stepId: ID, period: GoalPeriod) => void
+  /** Annule le report : délie l'étape et supprime l'objectif dérivé. */
+  onUnpromote: (stepId: ID) => void
 }) {
   const store = useStore()
   const [text, setText] = useState('')
@@ -1181,19 +1198,33 @@ function StepsEditor({
               dragId === step.id && 'bg-accent/10 opacity-60 ring-1 ring-accent/40',
             )}
           >
-            <input
-              type="checkbox"
-              className="size-4 shrink-0 accent-[var(--accent)]"
-              checked={step.done}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  steps: draft.steps.map((item) =>
-                    item.id === step.id ? { ...item, done: event.target.checked } : item,
-                  ),
-                })
-              }
-            />
+            {step.goalId ? (
+              // Étape reportée : c'est l'objectif dérivé qui la fait avancer.
+              // La case n'a plus de sens ici — un témoin, en lecture seule.
+              <span
+                title="Pilotée par l'objectif issu de cette étape"
+                className={cx(
+                  'grid size-4 shrink-0 place-items-center rounded-full border text-[9px] leading-none',
+                  step.done ? 'border-ok bg-ok text-white' : 'border-accent/60 text-transparent',
+                )}
+              >
+                ✓
+              </span>
+            ) : (
+              <input
+                type="checkbox"
+                className="size-4 shrink-0 accent-[var(--accent)]"
+                checked={step.done}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    steps: draft.steps.map((item) =>
+                      item.id === step.id ? { ...item, done: event.target.checked } : item,
+                    ),
+                  })
+                }
+              />
+            )}
             <InlineEdit
               value={step.text}
               className={cx('min-w-0 flex-1 text-sm', step.done && 'text-muted line-through')}
@@ -1223,9 +1254,38 @@ function StepsEditor({
             {/* Promotion : l'étape devient un objectif d'une période plus
                 courte, et le lien reste vivant dans les deux sens. */}
             {step.goalId ? (
-              <Pill tone="accent" className="shrink-0">
-                ↗ {GOAL_PERIOD_LABELS[store.goals.find((g) => g.id === step.goalId)?.period ?? 'weekly']}
-              </Pill>
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  title="Reportée en objectif — cliquer pour annuler le report"
+                  onClick={() => setPromoting(promoting === step.id ? null : step.id)}
+                  className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
+                >
+                  ↗ {GOAL_PERIOD_LABELS[store.goals.find((g) => g.id === step.goalId)?.period ?? 'weekly']}
+                </button>
+                {promoting === step.id ? (
+                  <>
+                    <div className="fixed inset-0 z-10" onMouseDown={() => setPromoting(null)} />
+                    <div className="absolute top-8 right-0 z-20 flex w-60 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
+                      <span className="px-1 pb-1 text-[11px] text-muted">
+                        Cette étape est suivie par un objectif à part. L’annuler supprime cet
+                        objectif et rend la case à l’étape.
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="justify-start text-danger"
+                        onClick={() => {
+                          setPromoting(null)
+                          onUnpromote(step.id)
+                        }}
+                      >
+                        ✕ Annuler le report
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
             ) : shorter.length > 0 ? (
               <div className="relative shrink-0">
                 <IconButton

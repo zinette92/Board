@@ -819,9 +819,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           .filter((card) => card.goalId === id)
           .map((card) => ({ ...card, goalId: null, updatedAt: nowIso() }))
         if (touched.length > 0) await repo.cards.putMany(touched)
+
+        // Objectif issu d'une étape : le lien s'efface chez le parent, sinon
+        // la pastille « ↗ » survivrait à l'objectif qu'elle désigne.
+        const parent = current.goals.find((goal) => goal.steps.some((step) => step.goalId === id))
+        const parentNext: Goal | null = parent
+          ? {
+              ...parent,
+              steps: parent.steps.map((step) => (step.goalId === id ? { ...step, goalId: null } : step)),
+              updatedAt: nowIso(),
+            }
+          : null
+        if (parentNext) await repo.goals.put(parentNext)
+
         await repo.goals.remove(id)
+        const remaining = without(current.goals, [id])
         apply({
-          goals: without(current.goals, [id]),
+          goals: parentNext ? upsert(remaining, [parentNext]) : remaining,
           cards: upsert(current.cards, touched),
         })
       },

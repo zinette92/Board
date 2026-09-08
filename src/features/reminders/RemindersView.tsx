@@ -12,7 +12,7 @@ import {
   TextInput,
   cx,
 } from '../../components/ui'
-import { addDays, formatDay, formatFullDay, today } from '../../lib/dates'
+import { addDays, daysBetween, formatDay, formatFullDay, today } from '../../lib/dates'
 import { notify, permissionState, requestPermission } from '../../lib/notify'
 import type { NotifyPermission } from '../../lib/notify'
 import { CATEGORY_COLORS, chipStyle, resolveLabelColor } from '../../lib/palette'
@@ -703,6 +703,36 @@ export function useReminderNotifications() {
 
 /* ----------------------------------------------------------- Carte de rappel */
 
+/**
+ * La date d'un rappel, dans un cadre qui se colore à l'approche :
+ * jaune à 30 jours, orange à 7, rouge à 2 — et rouge aussi une fois passée,
+ * tant qu'elle n'a pas été validée. Au-delà de 30 jours, neutre.
+ */
+function DueChip({ on, at }: { on: string; at: string }) {
+  const left = daysBetween(today(), on)
+  const color =
+    left <= 2 ? 'var(--danger)' : left <= 7 ? 'var(--warn)' : left <= 30 ? '#eab308' : null
+  return (
+    <span
+      title={left < 0 ? `Dépassée depuis ${-left} j` : left === 0 ? 'Aujourd’hui' : `Dans ${left} j`}
+      className={cx(
+        'rounded border px-1.5 py-px text-[11px] font-medium tabular-nums',
+        left <= 2 ? 'text-danger' : left <= 7 ? 'text-warn' : 'text-ink',
+      )}
+      style={
+        color
+          ? {
+              backgroundColor: `color-mix(in oklab, ${color} 18%, transparent)`,
+              borderColor: `color-mix(in oklab, ${color} 55%, transparent)`,
+            }
+          : { backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)' }
+      }
+    >
+      {formatWhen(on, at)}
+    </span>
+  )
+}
+
 function ReminderCard({
   reminder,
   showOn,
@@ -762,12 +792,20 @@ function ReminderCard({
         className="flex cursor-pointer flex-wrap items-center gap-2 px-3 py-2 transition-colors hover:bg-surface-2/40"
         onClick={onToggle}
       >
-        {/* Puce à la couleur de l'étiquette — creuse quand il n'y en a pas. */}
+        {/* Puce à la couleur de l'étiquette — creuse quand il n'y en a pas.
+            Le survol en donne le nom ; la zone sensible est plus large que la
+            puce elle-même, sinon 8 px sont trop durs à viser. */}
         <span
-          aria-hidden
-          className={cx('size-2 shrink-0 rounded-full', !labels[0] && 'border border-line')}
-          style={labels[0] ? { backgroundColor: resolveLabelColor(labels[0].color) } : undefined}
-        />
+          title={labels[0] ? labels[0].name : 'Sans étiquette'}
+          aria-label={labels[0] ? `Étiquette : ${labels[0].name}` : 'Sans étiquette'}
+          className="grid size-4 shrink-0 cursor-help place-items-center"
+        >
+          <span
+            aria-hidden
+            className={cx('size-2 rounded-full', !labels[0] && 'border border-line')}
+            style={labels[0] ? { backgroundColor: resolveLabelColor(labels[0].color) } : undefined}
+          />
+        </span>
         <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
           {reminder.title || <span className="text-muted">Sans titre</span>}
         </span>
@@ -781,11 +819,11 @@ function ReminderCard({
         {!reminder.active ? (
           <Pill tone="muted">en pause</Pill>
         ) : showOn ? (
-          <Pill tone="muted">{formatWhen(showOn, reminder.at)}</Pill>
+          <DueChip on={showOn} at={reminder.at} />
         ) : finished ? (
           <Pill tone="ok">passé</Pill>
         ) : next ? (
-          <Pill tone="muted">{formatWhen(next, reminder.at)}</Pill>
+          <DueChip on={next} at={reminder.at} />
         ) : (
           <Pill tone="muted">aucune date</Pill>
         )}
