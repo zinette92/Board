@@ -316,6 +316,7 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
                         setPendingId(null)
                         setOpenId(null)
                       }}
+                      pending={pendingId === reminder.id}
                       onMenu={(x, y) => setMenu({ reminderId: reminder.id, x, y })}
                       dragging={draggingId === reminder.id}
                       onDragChange={(id) => {
@@ -676,6 +677,7 @@ function ReminderCard({
   open,
   onToggle,
   onDone,
+  pending,
   onMenu,
   dragging,
   onDragChange,
@@ -688,6 +690,8 @@ function ReminderCard({
   onToggle: () => void
   /** « Terminé » : la fiche se ferme et l'ajout est acquis. */
   onDone: () => void
+  /** Ajout en attente : un clic hors fiche ne doit pas emporter la saisie. */
+  pending: boolean
   onMenu: (x: number, y: number) => void
   /** Vraie pour la ligne en cours de glissement : elle s'estompe sur place. */
   dragging: boolean
@@ -798,6 +802,7 @@ function ReminderCard({
       <Modal
         open={open}
         onClose={onToggle}
+        dismissible={!pending}
         wide
         title={reminder.title.trim() || 'Rappel sans titre'}
         footer={

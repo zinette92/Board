@@ -361,6 +361,7 @@ export function GoalsView({
       {editing ? (
         <GoalEditor
           goalId={editing}
+          creating={pendingGoal === editing}
           onClose={(saved) => {
             // Ajout en attente refermé sans enregistrer : on l'annule.
             if (!saved && pendingGoal === editing) void store.deleteGoal(editing)
@@ -801,9 +802,12 @@ function GoalContextMenu({
 
 function GoalEditor({
   goalId,
+  creating,
   onClose,
 }: {
   goalId: ID
+  /** Ajout en attente : un clic hors fiche ne doit pas emporter la saisie. */
+  creating: boolean
   /** `saved` vrai quand la fiche se ferme APRÈS une écriture. */
   onClose: (saved?: boolean) => void
 }) {
@@ -884,6 +888,7 @@ function GoalEditor({
     <Modal
       open
       wide
+      dismissible={!creating}
       onClose={onClose}
       title="Objectif"
       corner={

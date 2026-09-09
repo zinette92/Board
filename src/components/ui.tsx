@@ -243,6 +243,7 @@ export function Modal({
   footer,
   wide,
   corner,
+  dismissible = true,
 }: {
   open: boolean
   onClose: () => void
@@ -252,6 +253,12 @@ export function Modal({
   wide?: boolean
   /** Remplace la croix de fermeture — Échap et le clic hors fiche restent. */
   corner?: ReactNode
+  /**
+   * `false` : un clic hors de la fiche ne la ferme plus. Pour une création en
+   * cours, où fermer = perdre la saisie ; la croix et Échap, gestes voulus,
+   * ferment toujours.
+   */
+  dismissible?: boolean
 }) {
   const panel = useRef<HTMLDivElement>(null)
 
@@ -287,7 +294,7 @@ export function Modal({
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-3 sm:p-6"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (dismissible && event.target === event.currentTarget) onClose()
       }}
     >
       <div
