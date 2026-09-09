@@ -825,6 +825,8 @@ function GoalEditor({
   const [precise, setPrecise] = useState(() =>
     goal ? goal.dueOn !== periodWindowAt(goal.period, 0, goal.dueOn).to : false,
   )
+  /** Menu « Assigner à… » ouvert (objectif simple uniquement). */
+  const [assigning, setAssigning] = useState(false)
 
   if (!goal || !draft) return null
 
@@ -875,6 +877,19 @@ function GoalEditor({
    * mois → mois suivant… Échéance par défaut → fin de la fenêtre suivante ;
    * date précise → décalée d'exactement une période.
    */
+  /**
+   * Assigner à une autre période : l'objectif change de famille et se pose
+   * sur la fenêtre de cette période qui contient son échéance — une date
+   * précise est gardée si elle y tombe, sinon la fin de fenêtre prend le
+   * relais. Enregistré aussitôt : la fiche se ferme, l'objectif est sur
+   * sa nouvelle page.
+   */
+  const assign = (period: GoalPeriod) => {
+    const window = periodWindowAt(period, 0, draft.dueOn)
+    const keep = precise && draft.dueOn >= window.from && draft.dueOn <= window.to
+    return persist({ period, startsOn: window.from, dueOn: keep ? draft.dueOn : window.to })
+  }
+
   const report = () => {
     const next = periodWindowAt(draft.period, 1, draft.dueOn)
     return persist(
@@ -904,13 +919,49 @@ function GoalEditor({
       }
       footer={
         <>
-          <Button
-            className="mr-auto"
-            title="Reporter d'une période : semaine → semaine suivante, mois → mois suivant…"
-            onClick={() => void report()}
-          >
-            ↷ Reporter
-          </Button>
+          <div className="mr-auto flex items-center gap-2">
+            <Button
+              title="Reporter d'une période : semaine → semaine suivante, mois → mois suivant…"
+              onClick={() => void report()}
+            >
+              ↷ Reporter
+            </Button>
+            {draft.kind === 'simple' ? (
+              <div className="relative">
+                <Button
+                  title="Placer cet objectif sur une autre période — ex. du mois vers une semaine"
+                  onClick={() => setAssigning(!assigning)}
+                >
+                  📆 Assigner à…
+                </Button>
+                {assigning ? (
+                  <>
+                    <div className="fixed inset-0 z-10" onMouseDown={() => setAssigning(false)} />
+                    {/* Ouvert vers le HAUT : le bouton est au bord bas de la fiche. */}
+                    <div className="absolute bottom-full left-0 z-20 mb-2 flex w-48 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
+                      <span className="px-1 pb-1 text-[11px] text-muted">
+                        Placer cet objectif sur…
+                      </span>
+                      {GOAL_PERIODS.filter((period) => period !== draft.period).map((period) => (
+                        <Button
+                          key={period}
+                          size="sm"
+                          variant="ghost"
+                          className="justify-start"
+                          onClick={() => {
+                            setAssigning(false)
+                            void assign(period)
+                          }}
+                        >
+                          {GOAL_PERIOD_LABELS[period]}
+                        </Button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
           {draft.status !== 'archived' ? (
             <Button variant="ghost" onClick={() => void persist({ status: 'archived' })}>
               Archiver
