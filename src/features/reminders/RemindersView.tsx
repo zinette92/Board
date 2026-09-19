@@ -608,15 +608,15 @@ export function NotificationSwitch() {
 /**
  * Émet les notifications système du jour, une seule fois par rappel et par
  * jour. Branché sur l'application entière pour être actif quel que soit
- * l'onglet affiché.
+ * l'onglet affiché. `day` vient de `useToday` : au passage de minuit, l'effet
+ * rejoue et annonce les échéances du nouveau jour sans attendre un rechargement.
  */
-export function useReminderNotifications() {
+export function useReminderNotifications(day: string) {
   const store = useStore()
   const { reminders, ready, updateReminder } = store
 
   useEffect(() => {
     if (!ready || permissionState() !== 'granted') return
-    const day = today()
     const seen = new Set<string>()
     // Une seule bulle par rappel et par jour, échéance du jour d'abord.
     for (const item of pendingOccurrences(reminders, day)) {
@@ -636,7 +636,7 @@ export function useReminderNotifications() {
         void updateReminder(notice.reminder.id, { notifiedOn: day })
       }
     }
-  }, [ready, reminders, updateReminder])
+  }, [ready, reminders, updateReminder, day])
 }
 
 /* ----------------------------------------------------------- Carte de rappel */

@@ -9,10 +9,11 @@ import { CalendarView } from './features/calendar/CalendarView'
 import { GoalsView } from './features/goals/GoalsView'
 import { SearchBar } from './features/search/SearchBar'
 import { ErrorBanner, SettingsView } from './features/settings/SettingsView'
-import { goalProgress } from './lib/goals'
 import { byPosition } from './lib/ordering'
+import { pendingOccurrences } from './lib/reminders'
 import { useStore } from './lib/state'
 import { useTheme } from './lib/theme'
+import { useToday } from './lib/useToday'
 import type { ID } from './lib/types'
 
 type View = 'board' | 'goals' | 'calendar' | 'automation' | 'settings'
@@ -25,8 +26,12 @@ export function App() {
   const [openCardId, setOpenCardId] = useState<ID | null>(null)
   const [wallpaperOpen, setWallpaperOpen] = useState(false)
 
+  // Le jour courant, qui bascule tout seul à minuit : la pastille des rappels
+  // et les notifications doivent rester justes dans une appli laissée ouverte.
+  const day = useToday()
+
   // Notifications système des rappels : actives quel que soit l'onglet affiché.
-  useReminderNotifications()
+  useReminderNotifications(day)
 
   /** Identité stable : une flèche inline ferait rejouer les effets de la modale. */
   const closeCard = useCallback(() => setOpenCardId(null), [])
@@ -37,15 +42,17 @@ export function App() {
   )
   const board = boards.find((item) => item.id === boardId) ?? boards[0]
 
-  /** Compteur d'objectifs en retard : c'est l'information qui doit sauter aux yeux depuis n'importe quelle vue. */
-  const behind = useMemo(() => {
-    const cards = store.cards.filter((card) => card.archivedAt === null)
-    return store.goals.filter((goal) => {
-      if (goal.status !== 'active') return false
-      const pace = goalProgress(goal, cards).pace
-      return pace === 'behind' || pace === 'overdue'
-    }).length
-  }, [store.goals, store.cards])
+  /**
+   * Échéances de rappel à valider, celle du jour comprise — le même compte que
+   * le panneau « À valider » de l'onglet, visible depuis n'importe quelle vue.
+   * La pastille vivait sur « Objectifs » (objectifs en retard) : déplacée ici à
+   * la demande du user, un rappel échu appelle un geste, un retard d'objectif
+   * beaucoup moins.
+   */
+  const due = useMemo(() => {
+    const pending = pendingOccurrences(store.reminders, day)
+    return { count: pending.length, late: pending.filter((item) => item.on < day).length }
+  }, [store.reminders, day])
 
   if (!store.ready) {
     return (
@@ -87,14 +94,23 @@ export function App() {
           </TabButton>
           <TabButton active={view === 'goals'} onClick={() => setView('goals')}>
             Objectifs
-            {behind > 0 ? (
-              <Pill tone="warn" className="ml-1">
-                {behind}
-              </Pill>
-            ) : null}
           </TabButton>
           <TabButton active={view === 'automation'} onClick={() => setView('automation')}>
             Rappels
+            {due.count > 0 ? (
+              <Pill
+                tone={due.late > 0 ? 'danger' : 'warn'}
+                className="ml-1"
+                title={
+                  `${due.count} échéance${due.count > 1 ? 's' : ''} à valider` +
+                  (due.late > 0 ? ` — dont ${due.late} en retard` : '')
+                }
+                // Onglet actif : fond opaque, sinon la pastille se noie dans le bleu.
+                style={view === 'automation' ? { backgroundColor: 'var(--surface)' } : undefined}
+              >
+                {due.count}
+              </Pill>
+            ) : null}
           </TabButton>
           <TabButton active={view === 'calendar'} onClick={() => setView('calendar')}>
             Calendrier
