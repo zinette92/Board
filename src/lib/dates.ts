@@ -87,13 +87,13 @@ export function dueTone(dueOn: string, from = today()): DueTone {
   return 'later'
 }
 
-export function formatDue(dueOn: string, from = today()): string {
-  const days = daysBetween(from, dueOn)
-  if (days === 0) return "aujourd'hui"
-  if (days === 1) return 'demain'
-  if (days === -1) return 'hier'
-  if (days < 0) return `en retard de ${-days} j`
-  if (days <= 7) return `dans ${days} j`
+/**
+ * Une échéance s'affiche TOUJOURS en clair — « 30 sept. », jamais « dans 7 j »
+ * ni « demain » (demande explicite du user). Une formulation relative oblige à
+ * recalculer de tête, et deux cartes côte à côte ne se comparent plus.
+ * L'urgence est dite par la couleur, via `dueTone`.
+ */
+export function formatDue(dueOn: string): string {
   return formatDay(dueOn)
 }
 

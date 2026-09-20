@@ -8,6 +8,7 @@ import {
   IconButton,
   InlineEdit,
   Modal,
+  OverdueBadge,
   Pill,
   ProgressBar,
   TextArea,
@@ -481,6 +482,14 @@ function GoalRow({
             >
               {GOAL_CATEGORY_LABELS[goal.category]}
             </Pill>
+            {/* Échéance passée sans que la cible soit atteinte : l'alerte
+                passe avant tout le reste. */}
+            {progress.daysLeft < 0 && progress.ratio < 1 ? (
+              <OverdueBadge
+                title={`Échéance dépassée depuis ${days(-progress.daysLeft)}`}
+                className="size-4.5 text-[11px]"
+              />
+            ) : null}
             {goal.status === 'paused' ? <Pill tone="muted">en pause</Pill> : null}
             {goal.sourceGoalId ? <Pill tone="accent">↗ issu d'une étape</Pill> : null}
             {goal.kind !== 'smart' ? (
@@ -554,6 +563,9 @@ function GoalRow({
               <span className={cx('min-w-0 flex-1 truncate', step.done && 'text-muted line-through')}>
                 {step.text}
               </span>
+              {step.dueOn && !step.done && dueTone(step.dueOn) === 'overdue' ? (
+                <OverdueBadge title={`Étape dépassée — ${formatFullDay(step.dueOn)}`} />
+              ) : null}
               {step.dueOn ? (
                 <span
                   className={cx(
@@ -1440,6 +1452,9 @@ function StepsEditor({
               className={cx('min-w-0 flex-1 text-sm', step.done && 'text-muted line-through')}
               onSubmit={(next) => patchStep(step.id, { text: next })}
             />
+            {step.dueOn && !step.done && dueTone(step.dueOn) === 'overdue' ? (
+              <OverdueBadge title={`Étape dépassée — ${formatFullDay(step.dueOn)}`} />
+            ) : null}
             {/* Échéance propre à l'étape : plus c'est daté, plus c'est tenable. */}
             <DatePicker
               day={step.dueOn}

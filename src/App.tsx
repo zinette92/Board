@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { IconButton, Pill, cx } from './components/ui'
+import { IconButton, OverdueBadge, Pill, cx } from './components/ui'
 import { RemindersView, useReminderNotifications } from './features/reminders/RemindersView'
 import { AutomationsView } from './features/automations/AutomationsView'
 import { BoardView } from './features/board/BoardView'
@@ -10,6 +10,7 @@ import { CalendarView } from './features/calendar/CalendarView'
 import { GoalsView } from './features/goals/GoalsView'
 import { SearchBar } from './features/search/SearchBar'
 import { ErrorBanner, SettingsView } from './features/settings/SettingsView'
+import { isOverdue } from './lib/goals'
 import { byPosition } from './lib/ordering'
 import { pendingOccurrences } from './lib/reminders'
 import { useStore } from './lib/state'
@@ -54,6 +55,16 @@ export function App() {
     return { count: pending.length, late: pending.filter((item) => item.on < day).length }
   }, [store.reminders, day])
 
+  /**
+   * Objectifs en retard — échéance passée, ou étape datée laissée derrière.
+   * Une alerte, pas un compteur : l'onglet porte un point d'exclamation, le
+   * survol dit combien.
+   */
+  const lateGoals = useMemo(() => {
+    const cards = store.cards.filter((card) => card.archivedAt === null)
+    return store.goals.filter((goal) => isOverdue(goal, cards, day)).length
+  }, [store.goals, store.cards, day])
+
   if (!store.ready) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">Chargement…</div>
@@ -94,6 +105,12 @@ export function App() {
           </TabButton>
           <TabButton active={view === 'goals'} onClick={() => setView('goals')}>
             Objectifs
+            {lateGoals > 0 ? (
+              <OverdueBadge
+                className="ml-1"
+                title={`${lateGoals} objectif${lateGoals > 1 ? 's' : ''} en retard — échéance ou étape dépassée`}
+              />
+            ) : null}
           </TabButton>
           <TabButton active={view === 'reminders'} onClick={() => setView('reminders')}>
             Rappels

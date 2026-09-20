@@ -221,6 +221,21 @@ export function goalProgress(goal: Goal, cards: Card[], today = todayDay()): Goa
   }
 }
 
+/**
+ * L'objectif réclame-t-il une action en retard ? Vrai si son échéance est
+ * passée sans que la cible soit atteinte, ou si une étape datée non faite est
+ * dépassée — un objectif dont l'échéance tient encore peut très bien traîner
+ * une étape d'il y a une semaine.
+ *
+ * Un objectif archivé ou atteint ne réclame plus rien.
+ */
+export function isOverdue(goal: Goal, cards: Card[], today = todayDay()): boolean {
+  if (goal.status === 'archived') return false
+  if (goalProgress(goal, cards, today).ratio >= 1) return false
+  if (goal.dueOn < today) return true
+  return goal.steps.some((step) => !step.done && step.dueOn !== null && step.dueOn < today)
+}
+
 export const PACE_LABELS: Record<Pace, string> = {
   done: 'Atteint',
   overdue: 'Échéance dépassée',

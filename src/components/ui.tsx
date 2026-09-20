@@ -233,6 +233,26 @@ export function Pill({
   )
 }
 
+/**
+ * Point d'exclamation blanc sur pastille rouge : une échéance est passée et
+ * rien n'a été fait. Volontairement sans chiffre — c'est une alerte, pas une
+ * statistique ; le survol donne le détail.
+ */
+export function OverdueBadge({ title, className }: { title: string; className?: string }) {
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      className={cx(
+        'grid size-4 shrink-0 place-items-center rounded-full bg-danger text-[10px] leading-none font-bold text-white',
+        className,
+      )}
+    >
+      !
+    </span>
+  )
+}
+
 /* --------------------------------------------------------------------- Modale */
 
 export function Modal({
