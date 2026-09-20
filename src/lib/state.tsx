@@ -115,6 +115,12 @@ export type Store = {
   deleteCard: (id: ID) => Promise<void>
   /** Copie une carte juste sous l'originale, pièces jointes exclues. */
   duplicateCard: (id: ID) => Promise<Card | undefined>
+  /**
+   * Fait de cet objectif une tâche du tableau : la carte naît rattachée à
+   * l'objectif et porte ce qu'il manque pour atteindre la cible — la cocher
+   * termine donc l'objectif.
+   */
+  createCardForGoal: (goalId: ID, listId: ID) => Promise<Card | undefined>
   /** Programme (ou déprogramme, avec `null`) l'envoi d'une carte modèle. */
   setCardSchedule: (id: ID, schedule: CardSchedule | null) => Promise<void>
   /** Envoie tout de suite une copie, sans attendre la date. */
@@ -378,6 +384,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       apply({ goals: upsert(snap().goals, [next]) })
     }
 
+    /**
+     * Une carte rattachée vient de changer : l'objectif qu'elle nourrit a pu
+     * franchir sa cible — ou repasser dessous. `syncParentStep` ne fait
+     * quelque chose que si cet objectif est lui-même issu d'une étape ; c'est
+     * ce qui manquait pour que cocher une carte coche l'étape d'origine.
+     */
+    const syncGoalOfCard = async (goalId: ID | null) => {
+      if (!goalId) return
+      const goal = snap().goals.find((item) => item.id === goalId)
+      if (goal) await syncParentStep(goal)
+    }
+
     const placeCardAtIndex = async (card: Card, toListId: ID, targetIndex: number) => {
       const siblings = cardsOfList(toListId, card.id)
       const index = Math.max(0, Math.min(targetIndex, siblings.length))
@@ -509,6 +527,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = { ...card, ...safe, updatedAt: nowIso() }
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
+        // Changer de rattachement touche DEUX objectifs : l'ancien perd la
+        // contribution, le nouveau la gagne.
+        if (card.goalId !== next.goalId) await syncGoalOfCard(card.goalId)
+        await syncGoalOfCard(next.goalId)
       },
 
       moveCard: async (id, toListId, targetIndex) => {
@@ -537,6 +559,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = { ...card, doneAt: done ? nowIso() : null, updatedAt: nowIso() }
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
+        await syncGoalOfCard(next.goalId)
       },
 
       duplicateCard: async (id) => {
@@ -564,6 +587,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             id: newId(),
             items: checklist.items.map((item) => ({ ...item, id: newId(), done: false })),
           })),
+        }
+        await repo.cards.put(next)
+        apply({ cards: upsert(snap().cards, [next]) })
+        return next
+      },
+
+      createCardForGoal: async (goalId, listId) => {
+        const goal = snap().goals.find((item) => item.id === goalId)
+        const list = snap().lists.find((item) => item.id === listId)
+        if (!goal || !list) return undefined
+
+        // La carte porte ce qui MANQUE pour atteindre la cible : la cocher
+        // termine l'objectif, ce qui est tout l'intérêt du lien. Au moins 1,
+        // sinon une carte cochée ne ferait rien avancer du tout.
+        const remaining = goalProgress(goal, snap().cards).remaining
+        const card = makeCard(
+          list.boardId,
+          list.id,
+          goal.title.trim() || 'Objectif sans titre',
+          positionAtEnd(cardsOfList(list.id).map((item) => item.position)),
+        )
+        const next: Card = {
+          ...card,
+          goalId: goal.id,
+          contribution: Math.max(1, remaining),
+          // Le « pourquoi » de l'objectif suit la tâche : c'est ce qui donne
+          // envie de la faire.
+          description: goal.relevant.trim(),
+          dueOn: goal.dueOn,
         }
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
@@ -633,13 +685,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = { ...card, archivedAt: nowIso(), updatedAt: nowIso() }
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
+        // Une carte archivée ne compte plus : l'objectif peut retomber.
+        await syncGoalOfCard(next.goalId)
       },
 
       deleteCard: async (id) => {
+        // Relevé AVANT la suppression : après, la carte n'est plus là pour le dire.
+        const goalId = snap().cards.find((item) => item.id === id)?.goalId ?? null
         const files = await repo.attachments.ofCard(id)
         await repo.attachments.removeMany(files.map((file) => file.id))
         await repo.cards.remove(id)
         apply({ cards: without(snap().cards, [id]) })
+        await syncGoalOfCard(goalId)
       },
 
       /* -------------------------------------------------------------- Checklists */

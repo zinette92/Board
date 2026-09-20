@@ -32,7 +32,7 @@ import {
   goalProgress,
   smartCriteria,
 } from '../../lib/goals'
-import { positionAtEnd, positionBetween } from '../../lib/ordering'
+import { byPosition, positionAtEnd, positionBetween } from '../../lib/ordering'
 import { CATEGORY_COLORS } from '../../lib/palette'
 import { useStore } from '../../lib/state'
 import {
@@ -661,6 +661,48 @@ function GoalRow({
   )
 }
 
+/**
+ * Les listes où une tâche peut naître : toutes celles du tableau, sections de
+ * la barre du bas comprises — « convertir en carte » vise souvent BACKLOG. Les
+ * listes de modèles sont exclues : une tâche à faire n'y a rien à faire.
+ */
+function useTargetLists() {
+  const store = useStore()
+  return useMemo(
+    () =>
+      store.lists
+        .filter((list) => list.archivedAt === null && !list.isTemplate)
+        .sort(byPosition),
+    [store.lists],
+  )
+}
+
+/** Choix de la liste d'accueil, rendu dans un menu déjà ouvert. */
+function ListChoice({ onPick }: { onPick: (listId: ID) => void }) {
+  const lists = useTargetLists()
+  if (lists.length === 0) {
+    return <span className="px-1 py-2 text-[11px] text-muted">Aucune liste sur le tableau.</span>
+  }
+  return (
+    <>
+      <span className="px-1 pb-1 text-[11px] text-muted">Créer la tâche dans…</span>
+      <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+        {lists.map((list) => (
+          <Button
+            key={list.id}
+            size="sm"
+            variant="ghost"
+            className="justify-start"
+            onClick={() => onPick(list.id)}
+          >
+            {list.name}
+          </Button>
+        ))}
+      </div>
+    </>
+  )
+}
+
 /** Choix de la forme, avant d'ouvrir la fiche : simple, étapes ou SMART. */
 function KindChooser({
   category,
@@ -709,6 +751,8 @@ function GoalContextMenu({
 }) {
   const store = useStore()
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /** Le menu bascule sur le choix de la liste, plutôt que d'ouvrir un sous-menu. */
+  const [choosing, setChoosing] = useState(false)
   const goal = store.goals.find((item) => item.id === goalId)
 
   useEffect(() => {
@@ -772,29 +816,54 @@ function GoalContextMenu({
           top: Math.min(y, globalThis.innerHeight - 150),
         }}
       >
-        <Button
-          size="sm"
-          variant="ghost"
-          className="justify-start"
-          disabled={reached}
-          onClick={() => void validate()}
-        >
-          ✓ {reached ? 'Déjà atteint' : 'Valider'}
-        </Button>
-        <Button size="sm" variant="ghost" className="justify-start" onClick={() => void report()}>
-          ↷ Reporter
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className={cx('justify-start', confirmDelete ? 'text-danger' : '')}
-          onClick={() => {
-            if (confirmDelete) void remove()
-            else setConfirmDelete(true)
-          }}
-        >
-          🗑 {confirmDelete ? 'Supprimer pour de bon ?' : 'Supprimer'}
-        </Button>
+        {choosing ? (
+          <ListChoice
+            onPick={(listId) => {
+              onClose()
+              void store.createCardForGoal(goal.id, listId)
+            }}
+          />
+        ) : (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="justify-start"
+              disabled={reached}
+              onClick={() => void validate()}
+            >
+              ✓ {reached ? 'Déjà atteint' : 'Valider'}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="justify-start"
+              title="Créer la tâche qui porte cet objectif : la cocher l'achèvera"
+              onClick={() => setChoosing(true)}
+            >
+              🗂 Convertir en carte
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="justify-start"
+              onClick={() => void report()}
+            >
+              ↷ Reporter
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={cx('justify-start', confirmDelete ? 'text-danger' : '')}
+              onClick={() => {
+                if (confirmDelete) void remove()
+                else setConfirmDelete(true)
+              }}
+            >
+              🗑 {confirmDelete ? 'Supprimer pour de bon ?' : 'Supprimer'}
+            </Button>
+          </>
+        )}
       </div>
     </>
   )
@@ -827,6 +896,8 @@ function GoalEditor({
   )
   /** Menu « Assigner à… » ouvert (objectif simple uniquement). */
   const [assigning, setAssigning] = useState(false)
+  /** Menu « Convertir en carte » ouvert : reste à choisir la liste d'accueil. */
+  const [converting, setConverting] = useState(false)
 
   if (!goal || !draft) return null
 
@@ -890,6 +961,18 @@ function GoalEditor({
     return persist({ period, startsOn: window.from, dueOn: keep ? draft.dueOn : window.to })
   }
 
+  /**
+   * Convertir en carte : la saisie en cours est d'abord enregistrée — la carte
+   * reprend le titre, le « pourquoi » et l'échéance, il ne faut pas qu'elle
+   * naisse d'une version périmée. La fiche se ferme ensuite : la tâche
+   * apparaît sous l'objectif, dans « tâche(s) rattachée(s) ».
+   */
+  const convert = async (listId: ID) => {
+    await write()
+    await store.createCardForGoal(goalId, listId)
+    onClose(true)
+  }
+
   const report = () => {
     const next = periodWindowAt(draft.period, 1, draft.dueOn)
     return persist(
@@ -926,6 +1009,28 @@ function GoalEditor({
             >
               ↷ Reporter
             </Button>
+            <div className="relative">
+              <Button
+                title="Créer la tâche qui porte cet objectif : une fois la carte cochée, l'objectif est atteint"
+                onClick={() => setConverting(!converting)}
+              >
+                🗂 Convertir en carte
+              </Button>
+              {converting ? (
+                <>
+                  <div className="fixed inset-0 z-10" onMouseDown={() => setConverting(false)} />
+                  {/* Vers le HAUT : le bouton est au bord bas de la fiche. */}
+                  <div className="absolute bottom-full left-0 z-20 mb-2 flex w-56 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
+                    <ListChoice
+                      onPick={(listId) => {
+                        setConverting(false)
+                        void convert(listId)
+                      }}
+                    />
+                  </div>
+                </>
+              ) : null}
+            </div>
             {draft.kind === 'simple' ? (
               <div className="relative">
                 <Button
