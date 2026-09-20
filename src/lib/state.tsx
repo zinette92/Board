@@ -282,7 +282,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
      * si elle n'existe plus (ou n'a jamais existé), elle est créée sur-le-champ
      * plutôt que de perdre l'envoi — comportement demandé explicitement.
      */
-    const sendCopy = async (model: Card, schedule: CardSchedule, on: string) => {
+    const sendCopy = async (model: Card, schedule: CardSchedule) => {
       const wanted = schedule.listName.trim().toLowerCase()
       let target = listsOfBoard(model.boardId).find(
         (item) => item.name.trim().toLowerCase() === wanted,
@@ -310,7 +310,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         goalId: model.goalId,
         contribution: model.contribution,
         labelIds: [...model.labelIds],
-        dueOn: schedule.setDueDate ? on : null,
+        // Jamais d'échéance sur la copie : une carte produite par une
+        // automatisation n'a rien à faire dans le calendrier (demande user).
+        dueOn: null,
         checklists: model.checklists.map((checklist) => ({
           ...checklist,
           id: newId(),
@@ -579,7 +581,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sendModelNow: async (id) => {
         const card = snap().cards.find((item) => item.id === id)
         if (!card?.schedule) return
-        await sendCopy(card, card.schedule, today())
+        await sendCopy(card, card.schedule)
         const next = {
           ...card,
           schedule: { ...card.schedule, lastRunOn: today() },
@@ -602,7 +604,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!schedule || card.archivedAt !== null) continue
           if (!isDue(schedule, day)) continue
 
-          await sendCopy(card, schedule, schedule.nextOn)
+          await sendCopy(card, schedule)
           sent += 1
 
           // Envoi unique → il s'éteint ; récurrent → on saute à la prochaine

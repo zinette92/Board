@@ -147,7 +147,6 @@ export function makeSchedule(listName: string, nextOn: string): CardSchedule {
     listName,
     nextOn,
     repeat: null,
-    setDueDate: true,
     active: true,
     lastRunOn: null,
   }

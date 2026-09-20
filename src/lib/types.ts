@@ -297,8 +297,6 @@ export type CardSchedule = {
   nextOn: string
   /** `null` = un seul envoi. */
   repeat: ScheduleRepeat | null
-  /** La copie porte-t-elle la date d'envoi comme échéance ? */
-  setDueDate: boolean
   active: boolean
   /** Dernier envoi effectué, pour l'afficher sans deviner. */
   lastRunOn: string | null
