@@ -28,8 +28,10 @@ import {
 import { Button, ConfirmButton, TextInput } from '../../components/ui'
 import { nowIso } from '../../lib/id'
 import { byPosition } from '../../lib/ordering'
+import { isDockList } from '../../lib/dock'
 import { useStore } from '../../lib/state'
 import type { Board, Card, ID, Label } from '../../lib/types'
+import { BoardDock } from './BoardDock'
 import { CardFace } from './CardTile'
 import { ListColumn } from './ListColumn'
 
@@ -94,13 +96,17 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     if (wallpaper === undefined) void store.loadWallpaper(board.id)
   }, [wallpaper, store, board.id])
 
-  const lists = useMemo(
+  /** Toutes les listes du tableau, dans l'ordre : c'est la référence des positions. */
+  const allLists = useMemo(
     () =>
       store.lists
         .filter((list) => list.boardId === board.id && list.archivedAt === null)
         .sort(byPosition),
     [store.lists, board.id],
   )
+
+  /** Les colonnes affichées : MODELS, PIN, INBOX et BACKLOG vivent dans la barre du bas. */
+  const lists = useMemo(() => allLists.filter((list) => !isDockList(list)), [allLists])
 
   /* ----------------------------------------------- Raccourcis de survol --
    * C archive la carte sous le curseur, D la duplique sur place, R réduit ou
@@ -248,10 +254,10 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
       // `collisionForBoard` ne renvoie que des colonnes pendant un drag de
       // colonne : `over.id` est donc toujours un `list:<id>`, plus besoin de
       // remonter depuis une carte comme auparavant.
-      const from = lists.findIndex((list) => `${LIST_PREFIX}${list.id}` === String(active.id))
-      const to = lists.findIndex((list) => `${LIST_PREFIX}${list.id}` === String(over.id))
+      const from = allLists.findIndex((list) => `${LIST_PREFIX}${list.id}` === String(active.id))
+      const to = allLists.findIndex((list) => `${LIST_PREFIX}${list.id}` === String(over.id))
       if (from === -1 || to === -1 || from === to) return
-      await store.moveList(lists[from].id, to)
+      await store.moveList(allLists[from].id, to)
       return
     }
 
@@ -314,7 +320,7 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
       >
         {/* `items-start` : chaque colonne prend la hauteur de son contenu, comme
             sur Trello. Le fond d'écran, lui, est posé au niveau de l'app entière. */}
-        <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto px-3 pt-3 pb-3">
+        <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto px-3 pt-3 pb-24">
           <SortableContext
             items={lists.map((list) => `${LIST_PREFIX}${list.id}`)}
             strategy={horizontalListSortingStrategy}
@@ -400,6 +406,8 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      <BoardDock boardId={board.id} lists={allLists} onOpenCard={onOpenCard} />
     </div>
   )
 }
