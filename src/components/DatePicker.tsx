@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 
 import { addDays, parseDay, toDay, today } from '../lib/dates'
 import { Button, IconButton, cx } from './ui'
@@ -38,22 +38,34 @@ function NumberSpin({
   step,
   onBump,
   onSet,
+  inputRef,
+  firstDigitMax,
+  onFilled,
 }: {
   label: string
   value: number | null
   step: number
   onBump: (delta: number) => void
   onSet: (next: number) => void
+  inputRef?: RefObject<HTMLInputElement | null>
+  /**
+   * Plus grand chiffre pouvant EN COMMENCER DEUX : 2 pour les heures (pas
+   * d'heure « 30 »), 5 pour les minutes. Au-delà, la saisie d'un seul chiffre
+   * suffit — « 9 » vaut 09 et la valeur est complète.
+   */
+  firstDigitMax: number
+  /** La valeur est complète : au champ suivant, sans lever les doigts. */
+  onFilled?: () => void
 }) {
   const [draft, setDraft] = useState<string | null>(null)
   const zone = useRef<HTMLDivElement>(null)
   const shown = draft ?? (value === null ? '' : pad2(value))
 
-  const commitDraft = () => {
-    if (draft === null) return
-    const parsed = Number(draft)
+  const commitDraft = (raw: string | null = draft) => {
+    if (raw === null) return
+    const parsed = Number(raw)
     setDraft(null)
-    if (draft.trim() !== '' && Number.isFinite(parsed)) onSet(Math.trunc(parsed))
+    if (raw.trim() !== '' && Number.isFinite(parsed)) onSet(Math.trunc(parsed))
   }
 
   // Molette : écouteur natif non passif — React déclare `onWheel` passif, ce
@@ -72,13 +84,25 @@ function NumberSpin({
   return (
     <div ref={zone} className="group flex items-center">
       <input
+        ref={inputRef}
         aria-label={label}
         inputMode="numeric"
-        placeholder="––"
+        placeholder="XX"
         value={shown}
-        className="w-8 border-0 bg-transparent text-center text-base font-semibold text-ink tabular-nums placeholder:text-muted/40 focus:outline-none"
-        onChange={(event) => setDraft(event.target.value.replace(/\D/g, '').slice(0, 2))}
-        onBlur={commitDraft}
+        // Un clic sélectionne tout : on tape par-dessus, sans effacer d'abord.
+        onFocus={(event) => event.target.select()}
+        className="w-7 border-0 bg-transparent text-center text-base font-semibold text-ink tabular-nums placeholder:font-normal placeholder:text-muted/40 focus:outline-none"
+        onChange={(event) => {
+          const digits = event.target.value.replace(/\D/g, '').slice(0, 2)
+          setDraft(digits)
+          // Deux chiffres, ou un seul qui ne peut pas en commencer deux : la
+          // valeur est complète, on enchaîne.
+          if (digits.length === 2 || (digits.length === 1 && Number(digits) > firstDigitMax)) {
+            commitDraft(digits)
+            onFilled?.()
+          }
+        }}
+        onBlur={() => commitDraft()}
         onKeyDown={(event) => {
           if (event.key === 'Enter') commitDraft()
           if (event.key === 'ArrowUp') {
@@ -129,6 +153,8 @@ function TimeFields({
    * martèlement de flèche relit une valeur en retard et perd des pas.
    */
   const localRef = useRef<string | null>(time)
+  /** Cible du passage automatique une fois l'heure saisie. */
+  const minuteRef = useRef<HTMLInputElement>(null)
   const [, rerender] = useState(0)
   const commit = (next: string | null) => {
     localRef.current = next
@@ -168,12 +194,30 @@ function TimeFields({
   return (
     <div className="flex items-center justify-center gap-1.5">
       <span className="mr-auto text-xs text-muted">Heure</span>
-      <div className="inline-flex items-center rounded-lg border border-line bg-surface py-0.5 pr-0.5 pl-1 shadow-sm focus-within:border-accent">
-        <NumberSpin label="Heure" value={hour} step={1} onBump={bumpHour} onSet={setHour} />
-        <span aria-hidden className="px-0.5 pb-0.5 font-semibold text-muted">
+      {/* Un seul champ à l'œil — « XX:XX » — fait de deux saisies : taper
+          l'heure passe tout seul aux minutes. */}
+      <div className="inline-flex items-center rounded-lg border border-line bg-surface px-1 py-1 shadow-sm transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
+        <NumberSpin
+          label="Heure"
+          value={hour}
+          step={1}
+          firstDigitMax={2}
+          onBump={bumpHour}
+          onSet={setHour}
+          onFilled={() => minuteRef.current?.focus()}
+        />
+        <span aria-hidden className="px-px pb-0.5 text-base font-semibold text-muted">
           :
         </span>
-        <NumberSpin label="Minutes" value={minute} step={5} onBump={bumpMinute} onSet={setMinute} />
+        <NumberSpin
+          label="Minutes"
+          value={minute}
+          step={5}
+          firstDigitMax={5}
+          inputRef={minuteRef}
+          onBump={bumpMinute}
+          onSet={setMinute}
+        />
       </div>
       {localRef.current ? (
         <IconButton label="Sans heure" onClick={() => commit(null)}>
