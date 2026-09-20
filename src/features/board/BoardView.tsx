@@ -3,6 +3,7 @@ import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
+  MeasuringStrategy,
   MouseSensor,
   TouchSensor,
   closestCorners,
@@ -87,6 +88,11 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null)
   /** Arrangement provisoire pendant un glissement, pour voir la carte changer de colonne en direct. */
   const [dragArrangement, setDragArrangement] = useState<Arrangement | null>(null)
+  /**
+   * Liste réduite ouverte le temps d'un survol. Jamais écrite en base : à la
+   * fin du geste l'état retombe à `null` et la colonne se referme seule.
+   */
+  const [peeked, setPeeked] = useState<ID | null>(null)
   const [addingList, setAddingList] = useState(false)
   const [listDraft, setListDraft] = useState('')
 
@@ -217,6 +223,12 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     const { active, over } = event
     if (active.data.current?.type !== 'card' || !over) return
 
+    // Une carte survole une liste réduite : on la déplie pour qu'elle se vise
+    // comme les autres. Hors d'une liste réduite, rien n'est déplié.
+    const hovered = resolveContainer(dragArrangement ?? baseArrangement, over.id)
+    const folded = lists.find((list) => list.id === hovered && list.collapsed)
+    setPeeked(folded?.id ?? null)
+
     setDragArrangement((current) => {
       const arr = current ?? baseArrangement
       const from = containerOf(arr, active.id)
@@ -233,8 +245,9 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
         overIndex !== -1 &&
         activeTop !== undefined &&
         activeTop > over.rect.top + over.rect.height / 2
-      // Survol de la colonne elle-même (zone vide) : on ajoute à la fin.
-      const insertAt = overIndex === -1 ? target.length : overIndex + (below ? 1 : 0)
+      // Survol de la colonne elle-même, et non d'une carte : la place est en
+      // TÊTE — dernier arrivé, premier affiché.
+      const insertAt = overIndex === -1 ? 0 : overIndex + (below ? 1 : 0)
 
       return {
         ...arr,
@@ -247,6 +260,8 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
   const onDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
     setActiveId(null)
+    // Le geste est fini : une liste dépliée pour l'occasion se referme.
+    setPeeked(null)
 
     if (active.data.current?.type === 'list') {
       setDragArrangement(null)
@@ -316,7 +331,12 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
         onDragCancel={() => {
           setActiveId(null)
           setDragArrangement(null)
+          setPeeked(null)
         }}
+        // Une liste réduite qui s'ouvre en plein glissement déplace tout ce
+        // qui la suit : sans re-mesure permanente, dnd-kit viserait les
+        // anciennes positions.
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       >
         {/* `items-start` : chaque colonne prend la hauteur de son contenu, comme
             sur Trello. Le fond d'écran, lui, est posé au niveau de l'app entière. */}
@@ -336,6 +356,7 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
                 goalsById={goalsById}
                 onOpenCard={onOpenCard}
                 hasWallpaper={Boolean(wallpaper)}
+                peeking={peeked === list.id}
               />
             ))}
           </SortableContext>

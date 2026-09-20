@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 import {
   Button,
@@ -135,9 +135,15 @@ export function GoalsView({
       if (!showArchived && goal.status === 'archived') continue
       map.get(goal.category)?.push(goal)
     }
-    for (const list of map.values()) list.sort((a, b) => a.position - b.position)
+    // Atteint = rangé en bas. Un objectif fini n'a plus rien à réclamer : il
+    // reste visible, mais cesse d'occuper le haut de la colonne. À rang égal,
+    // l'ordre choisi à la main est conservé.
+    const reached = (goal: Goal) => (goalProgress(goal, cards).ratio >= 1 ? 1 : 0)
+    for (const list of map.values()) {
+      list.sort((a, b) => reached(a) - reached(b) || a.position - b.position)
+    }
     return map
-  }, [store.goals, period, window.from, window.to, showArchived])
+  }, [store.goals, cards, period, window.from, window.to, showArchived])
 
   /** Domaine dont on vient de cliquer « + Objectif » : le choix de forme s'ouvre. */
   const [choosing, setChoosing] = useState<GoalCategory | null>(null)
@@ -455,6 +461,9 @@ function GoalRow({
       className={cx(
         'cursor-pointer rounded-xl border border-line bg-surface p-4 shadow-sm transition-all hover:border-accent/50',
         goal.status === 'archived' && 'opacity-60',
+        // Atteint : estompé et relégué en bas de colonne — c'est fait, on
+        // passe à autre chose. Le survol le rend à nouveau lisible.
+        progress.ratio >= 1 && 'opacity-50 hover:opacity-100',
         // Aperçu transparent : la source reste visible mais s'efface.
         dragging && 'opacity-40',
         insertBefore && 'border-t-2 border-t-accent',
@@ -686,7 +695,9 @@ function ListChoice({ onPick }: { onPick: (listId: ID) => void }) {
   return (
     <>
       <span className="px-1 pb-1 text-[11px] text-muted">Créer la tâche dans…</span>
-      <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+      {/* Pas de défilement ici : c'est le menu qui l'assure, sinon deux zones
+          scrollables s'imbriqueraient. */}
+      <div className="flex flex-col gap-1">
         {lists.map((list) => (
           <Button
             key={list.id}
@@ -755,6 +766,22 @@ function GoalContextMenu({
   const [choosing, setChoosing] = useState(false)
   const goal = store.goals.find((item) => item.id === goalId)
 
+  /**
+   * Position mesurée après rendu, et non devinée : le menu change de taille
+   * selon ce qu'il affiche (trois actions, ou toutes les listes du tableau).
+   * Une hauteur supposée le faisait déborder sous l'écran, hors d'atteinte.
+   */
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [place, setPlace] = useState<CSSProperties>({ left: x, top: y, visibility: 'hidden' })
+  useLayoutEffect(() => {
+    const box = menuRef.current?.getBoundingClientRect()
+    if (!box) return
+    setPlace({
+      left: Math.max(8, Math.min(x, globalThis.innerWidth - box.width - 8)),
+      top: Math.max(8, Math.min(y, globalThis.innerHeight - box.height - 8)),
+    })
+  }, [x, y, choosing])
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -810,11 +837,9 @@ function GoalContextMenu({
         }}
       />
       <div
-        className="fixed z-50 flex w-52 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl"
-        style={{
-          left: Math.min(x, globalThis.innerWidth - 220),
-          top: Math.min(y, globalThis.innerHeight - 150),
-        }}
+        ref={menuRef}
+        className="fixed z-50 flex max-h-[70vh] w-52 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl"
+        style={place}
       >
         {choosing ? (
           <ListChoice
@@ -1019,8 +1044,10 @@ function GoalEditor({
               {converting ? (
                 <>
                   <div className="fixed inset-0 z-10" onMouseDown={() => setConverting(false)} />
-                  {/* Vers le HAUT : le bouton est au bord bas de la fiche. */}
-                  <div className="absolute bottom-full left-0 z-20 mb-2 flex w-56 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
+                  {/* Vers le HAUT : le bouton est au bord bas de la fiche.
+                      Plafonné et défilant : un tableau à dix listes déborderait
+                      sinon par le haut de l'écran. */}
+                  <div className="absolute bottom-full left-0 z-20 mb-2 flex max-h-[60vh] w-56 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl">
                     <ListChoice
                       onPick={(listId) => {
                         setConverting(false)

@@ -25,6 +25,7 @@ export function ListColumn({
   goalsById,
   onOpenCard,
   hasWallpaper,
+  peeking = false,
 }: {
   list: List
   cards: Card[]
@@ -32,6 +33,12 @@ export function ListColumn({
   goalsById: Map<ID, Goal>
   onOpenCard: (cardId: ID) => void
   hasWallpaper: boolean
+  /**
+   * Liste réduite, dépliée le temps qu'une carte la survole. Purement
+   * visuel : `list.collapsed` reste vrai en base, la colonne se referme
+   * donc d'elle-même au dépôt.
+   */
+  peeking?: boolean
 }) {
   const store = useStore()
   const [composing, setComposing] = useState(false)
@@ -58,8 +65,10 @@ export function ListColumn({
 
   /* ------------------------------------------------------------ Liste réduite */
   // Barre verticale à la Trello : un clic n'importe où la rouvre. Elle reste
-  // triable (glisser) et accepte le dépôt de cartes — elles vont à la fin.
-  if (list.collapsed) {
+  // triable (glisser) et accepte le dépôt de cartes. Survolée par une carte en
+  // cours de glissement, elle s'ouvre le temps du geste (`peeking`) et se
+  // comporte alors exactement comme une colonne ordinaire.
+  if (list.collapsed && !peeking) {
     return (
       <section
         ref={(node) => {
