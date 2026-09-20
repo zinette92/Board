@@ -269,8 +269,22 @@ export type Repeat =
   | { kind: 'weekdays'; days: number[] }
 
 /**
- * Programmation d'envoi d'une carte modèle : le jour venu, une **copie** part
- * dans la liste voulue, l'original restant dans la liste de modèles.
+ * Jour du mois d'une automatisation mensuelle : un quantième, le dernier jour
+ * du mois, ou son dernier jour ouvré.
+ */
+export type MonthDay = number | 'last' | 'last-business'
+
+/**
+ * Rythme d'une automatisation : les deux formes des rappels, plus le mensuel
+ * par quantième qu'eux n'ont pas. « Tous les mois » en intervalle dérive dès
+ * qu'un mois est trop court (31 janvier → 28 février → 28 mars…), là où « le
+ * dernier jour » doit rester le dernier jour.
+ */
+export type ScheduleRepeat = Repeat | { kind: 'monthday'; day: MonthDay }
+
+/**
+ * Automatisation portée par une carte modèle : le jour venu, une **copie**
+ * part dans la liste voulue, l'original restant dans la liste de modèles.
  *
  * La destination est mémorisée par **nom** et non par identifiant : c'est ce
  * qui permet de recréer la liste si elle a disparu, plutôt que de perdre
@@ -281,8 +295,8 @@ export type CardSchedule = {
   listName: string
   /** Prochaine date d'envoi, `YYYY-MM-DD`. */
   nextOn: string
-  /** `null` = un seul envoi. Même vocabulaire que les rappels. */
-  repeat: Repeat | null
+  /** `null` = un seul envoi. */
+  repeat: ScheduleRepeat | null
   /** La copie porte-t-elle la date d'envoi comme échéance ? */
   setDueDate: boolean
   active: boolean

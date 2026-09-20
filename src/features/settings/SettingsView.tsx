@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { Button, ConfirmButton, Field, IconButton, TextInput, cx } from '../../components/ui'
 import { LABEL_COLOR_HEX, LABEL_COLOR_NAMES, chipStyle, labelColorToHex } from '../../lib/palette'
 import { SignOutButton } from '../auth/AuthGate'
+import { WallpaperPicker } from '../board/BoardView'
+import { byPosition } from '../../lib/ordering'
 import { NotificationSwitch } from '../reminders/RemindersView'
 import { gcalStatus } from '../../lib/gcal'
 import type { GcalStatus } from '../../lib/gcal'
@@ -40,6 +42,8 @@ export function SettingsView({
   setTheme: (next: Theme) => void
 }) {
   const store = useStore()
+  // Un seul tableau en pratique : le fond se règle sur le premier actif.
+  const board = store.boards.filter((item) => item.archivedAt === null).sort(byPosition)[0]
   const [labelName, setLabelName] = useState('')
   const [labelColor, setLabelColor] = useState<string>('#3b82f6')
 
@@ -187,6 +191,16 @@ export function SettingsView({
           </ul>
         </section>
 
+        {/* -------------------------------------------------- Fond du tableau */}
+        <section className="rounded-xl border border-line bg-surface p-4">
+          <h3 className="mb-3 text-sm font-semibold">Fond du tableau</h3>
+          {board ? (
+            <WallpaperPicker boardId={board.id} />
+          ) : (
+            <p className="text-xs text-muted">Aucun tableau.</p>
+          )}
+        </section>
+
         {/* ------------------------------------------------------------ Thème */}
         <section className="rounded-xl border border-line bg-surface p-4">
           <h3 className="mb-3 text-sm font-semibold">Apparence</h3>
@@ -303,7 +317,7 @@ function ShortcutsSection() {
       'Tableau — carte survolée par la souris',
       [
         ['C', 'Archiver la carte'],
-        ['D', 'Envoyer la carte dans la colonne « DONE » (créée si absente)'],
+        ['D', 'Dupliquer la carte, la copie se pose en bas de la même liste'],
       ],
     ],
     ['Tableau — liste survolée par la souris', [['R', 'Réduire ou rouvrir la liste']]],

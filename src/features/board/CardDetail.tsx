@@ -34,12 +34,11 @@ import {
 } from '../../lib/dates'
 import { formatAmount, formatWithUnit } from '../../lib/goals'
 import { describeSchedule, makeSchedule } from '../../lib/models'
+import { AutomationFields } from '../automations/AutomationsView'
 import { byPosition } from '../../lib/ordering'
 import { chipStyle, listTintStyle } from '../../lib/palette'
 import { MAX_ATTACHMENT_BYTES, useStore } from '../../lib/state'
-import { WEEKDAYS } from '../../lib/reminders'
-import type { Attachment, Card, ID, RecurrenceUnit, Repeat } from '../../lib/types'
-import { RECURRENCE_UNITS } from '../../lib/types'
+import type { Attachment, Card, CardSchedule, ID } from '../../lib/types'
 
 const dueDayFormatter = new Intl.DateTimeFormat('fr-FR', {
   weekday: 'short',
@@ -1166,12 +1165,8 @@ function DescriptionEditor({
  * pourquoi elle est mémorisée par nom et non par identifiant.
  */
 /** Valeur sentinelle du menu : saisir un nom de liste qui n'existe pas encore. */
-const NEW_LIST = '__nouvelle_liste__'
-
 function ScheduleEditor({ card }: { card: Card }) {
   const store = useStore()
-  // Avant tout retour anticipé : un hook ne se déclare pas conditionnellement.
-  const [custom, setCustom] = useState(false)
   const schedule = card.schedule
   const lists = store.lists
     .filter((item) => item.boardId === card.boardId && item.archivedAt === null && !item.isTemplate)
@@ -1182,7 +1177,7 @@ function ScheduleEditor({ card }: { card: Card }) {
       <div className="flex flex-col gap-2">
         <p className="text-xs text-muted">
           Le jour venu, une copie de cette carte partira dans la liste choisie. L'original reste
-          ici.
+          ici. Toutes les automatisations se retrouvent aussi sous ⚡, en haut à droite.
         </p>
         <Button
           size="sm"
@@ -1195,208 +1190,20 @@ function ScheduleEditor({ card }: { card: Card }) {
             )
           }
         >
-          Programmer un envoi
+          Automatiser cette carte
         </Button>
       </div>
     )
   }
 
-  const set = (patch: Partial<typeof schedule>) =>
+  const set = (patch: Partial<CardSchedule>) =>
     store.setCardSchedule(card.id, { ...schedule, ...patch })
-
-  const mode: 'once' | 'daily' | 'weekly' | 'weekdays' | 'interval' =
-    schedule.repeat === null
-      ? 'once'
-      : schedule.repeat.kind === 'weekdays'
-        ? 'weekdays'
-        : schedule.repeat.interval === 1 && schedule.repeat.unit === 'day'
-          ? 'daily'
-          : schedule.repeat.interval === 1 && schedule.repeat.unit === 'week'
-            ? 'weekly'
-            : 'interval'
-
-  const repeatFor = (next: typeof mode): Repeat | null => {
-    switch (next) {
-      case 'once':
-        return null
-      case 'daily':
-        return { kind: 'interval', interval: 1, unit: 'day' }
-      case 'weekly':
-        return { kind: 'interval', interval: 1, unit: 'week' }
-      case 'weekdays':
-        return {
-          kind: 'weekdays',
-          days: schedule.repeat?.kind === 'weekdays' ? schedule.repeat.days : [1],
-        }
-      case 'interval':
-        return {
-          kind: 'interval',
-          interval: schedule.repeat?.kind === 'interval' ? Math.max(2, schedule.repeat.interval) : 2,
-          unit: schedule.repeat?.kind === 'interval' ? schedule.repeat.unit : 'month',
-        }
-    }
-  }
-
-  // La destination est mémorisée par NOM : elle peut désigner une liste encore
-  // inexistante, qui sera alors créée au moment de l'envoi.
-  const match = lists.find(
-    (item) => item.name.trim().toLowerCase() === schedule.listName.trim().toLowerCase(),
-  )
-  const showCustom = custom || match === undefined
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="min-w-40 flex-1">
-          <span className="mb-1 block text-[11px] text-muted">Liste de destination</span>
-          <Select
-            className="w-full"
-            value={showCustom ? NEW_LIST : (match?.name ?? NEW_LIST)}
-            aria-label="Liste de destination"
-            onChange={(event) => {
-              if (event.target.value === NEW_LIST) {
-                setCustom(true)
-                return
-              }
-              setCustom(false)
-              set({ listName: event.target.value })
-            }}
-          >
-            {lists.map((item) => (
-              <option key={item.id} value={item.name}>
-                {item.name}
-              </option>
-            ))}
-            <option value={NEW_LIST}>➕ Une autre liste…</option>
-          </Select>
-        </label>
-        <div>
-          <span className="mb-1 block text-[11px] text-muted">Prochain envoi</span>
-          <DatePicker
-            day={schedule.nextOn}
-            onSelect={(day) => set({ nextOn: day })}
-            trigger={(toggle) => (
-              <Button size="sm" onClick={toggle}>
-                📅 {formatFullDay(schedule.nextOn)}
-              </Button>
-            )}
-          />
-        </div>
-      </div>
-
-      {showCustom ? (
-        <div className="flex flex-col gap-1">
-          <TextInput
-            autoFocus={custom}
-            value={schedule.listName}
-            placeholder="Nom de la liste à créer"
-            aria-label="Nom de la liste de destination"
-            onChange={(event) => set({ listName: event.target.value })}
-          />
-          {match === undefined ? (
-            <p className="text-xs text-warn">
-              « {schedule.listName.trim() || '…'} » n'existe pas encore — elle sera créée
-              automatiquement au moment de l'envoi.
-            </p>
-          ) : (
-            <p className="text-xs text-muted">« {match.name} » existe déjà : la copie ira dedans.</p>
-          )}
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={mode}
-          className="w-52"
-          aria-label="Répétition de l'envoi"
-          onChange={(event) => set({ repeat: repeatFor(event.target.value as typeof mode) })}
-        >
-          <option value="once">Une seule fois</option>
-          <option value="daily">Tous les jours</option>
-          <option value="weekly">Toutes les semaines</option>
-          <option value="weekdays">Certains jours de la semaine</option>
-          <option value="interval">Tous les X…</option>
-        </Select>
-
-        {mode === 'interval' && schedule.repeat?.kind === 'interval' ? (
-          <>
-            <TextInput
-              type="number"
-              min={1}
-              value={schedule.repeat.interval}
-              className="w-20"
-              aria-label="Intervalle d'envoi"
-              onChange={(event) => {
-                if (schedule.repeat?.kind !== 'interval') return
-                set({
-                  repeat: {
-                    ...schedule.repeat,
-                    interval: Math.max(1, Number(event.target.value) || 1),
-                  },
-                })
-              }}
-            />
-            <Select
-              value={schedule.repeat.unit}
-              className="w-32"
-              aria-label="Unité d'envoi"
-              onChange={(event) => {
-                if (schedule.repeat?.kind !== 'interval') return
-                set({ repeat: { ...schedule.repeat, unit: event.target.value as RecurrenceUnit } })
-              }}
-            >
-              {RECURRENCE_UNITS.map((unit) => (
-                <option key={unit} value={unit}>
-                  {{ day: 'jour(s)', week: 'semaine(s)', month: 'mois', year: 'an(s)' }[unit]}
-                </option>
-              ))}
-            </Select>
-          </>
-        ) : null}
-      </div>
-
-      {mode === 'weekdays' && schedule.repeat?.kind === 'weekdays' ? (
-        <div className="flex flex-wrap gap-1">
-          {WEEKDAYS.map((weekday) => {
-            const on =
-              schedule.repeat?.kind === 'weekdays' && schedule.repeat.days.includes(weekday.value)
-            return (
-              <button
-                key={weekday.value}
-                type="button"
-                title={weekday.label}
-                onClick={() => {
-                  if (schedule.repeat?.kind !== 'weekdays') return
-                  const days = on
-                    ? schedule.repeat.days.filter((value) => value !== weekday.value)
-                    : [...schedule.repeat.days, weekday.value]
-                  set({ repeat: { kind: 'weekdays', days } })
-                }}
-                className={cx(
-                  'size-8 rounded-lg border text-xs font-semibold transition-colors',
-                  on
-                    ? 'border-accent bg-accent text-accent-ink'
-                    : 'border-line text-muted hover:border-accent',
-                )}
-              >
-                {weekday.short}
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
-
-      <label className="flex items-start gap-2">
-        <input
-          type="checkbox"
-          className="mt-0.5 size-4 accent-[var(--accent)]"
-          checked={schedule.setDueDate}
-          onChange={(event) => set({ setDueDate: event.target.checked })}
-        />
-        <span className="text-xs text-muted">
-          La copie porte la date d'envoi comme échéance — elle apparaît donc aussi au calendrier.
-        </span>
-      </label>
+      {/* Le même formulaire que la vue Automatisations : un seul comportement
+          à maintenir, quel que soit l'endroit d'où on le règle. */}
+      <AutomationFields boardId={card.boardId} schedule={schedule} set={set} />
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2">
         <span className="mr-auto text-xs text-muted">

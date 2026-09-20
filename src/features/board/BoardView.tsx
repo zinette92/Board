@@ -25,7 +25,7 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable'
 
-import { Button, ConfirmButton, Modal, TextInput } from '../../components/ui'
+import { Button, ConfirmButton, TextInput } from '../../components/ui'
 import { nowIso } from '../../lib/id'
 import { byPosition } from '../../lib/ordering'
 import { useStore } from '../../lib/state'
@@ -103,8 +103,8 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
   )
 
   /* ----------------------------------------------- Raccourcis de survol --
-   * C archive la carte sous le curseur, D l'envoie dans la liste « Done »
-   * (créée en fin de tableau si absente), R réduit/rouvre la liste survolée.
+   * C archive la carte sous le curseur, D la duplique sur place, R réduit ou
+   * rouvre la liste survolée.
    *
    * Le survol est résolu à la frappe par elementFromPoint sur la dernière
    * position connue de la souris : aucun état React, aucun re-rendu, et cela
@@ -114,16 +114,6 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
       mouse.current = { x: event.clientX, y: event.clientY }
-    }
-
-    const sendToDone = async (cardId: ID) => {
-      const done =
-        lists.find((list) => !list.isTemplate && list.name.trim().toLowerCase() === 'done') ??
-        (await store.createList(board.id, 'DONE'))
-      if (!done) return
-      const card = store.cards.find((item) => item.id === cardId)
-      if (card?.listId === done.id) return
-      await store.moveCard(cardId, done.id, Number.MAX_SAFE_INTEGER)
     }
 
     const onKey = (event: KeyboardEvent) => {
@@ -149,7 +139,7 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
       if (!cardEl) return
       const id = cardEl.getAttribute('data-card-id') as ID
       if (key === 'c') void store.updateCard(id, { archivedAt: nowIso() })
-      if (key === 'd') void sendToDone(id)
+      if (key === 'd') void store.duplicateCard(id)
       event.preventDefault()
     }
 
@@ -415,69 +405,62 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
 }
 
 /** Choix du fond d'écran du tableau — une image stockée en local, comme le reste. */
-export function WallpaperModal({
-  boardId,
-  url,
-  onClose,
-}: {
-  boardId: ID
-  url: string | null
-  onClose: () => void
-}) {
+/**
+ * Choix du fond d'écran du tableau. Vit dans les Réglages : un fond se change
+ * deux fois par an, il n'a pas sa place en permanence dans l'en-tête.
+ */
+export function WallpaperPicker({ boardId }: { boardId: ID }) {
   const store = useStore()
   const input = useRef<HTMLInputElement>(null)
+  const url = store.wallpapers[boardId] ?? null
+
+  // Réglages peut être le premier écran ouvert : le fond n'a alors jamais été
+  // lu. Le store déduplique les chargements, l'appel est donc sans risque.
+  useEffect(() => {
+    if (store.wallpapers[boardId] === undefined) void store.loadWallpaper(boardId)
+  }, [store, boardId])
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Fond du tableau"
-      footer={
-        <Button variant="primary" onClick={onClose}>
-          Fermer
-        </Button>
-      }
-    >
-      <div className="flex flex-col gap-3">
-        {url ? (
-          <img
-            src={url}
-            alt="Fond actuel du tableau"
-            className="max-h-44 w-full rounded-lg border border-line object-cover"
-          />
-        ) : (
-          <p className="rounded-lg border border-dashed border-line p-5 text-center text-xs text-muted">
-            Aucun fond pour l'instant.
-          </p>
-        )}
-        <input
-          ref={input}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            if (file) void store.setWallpaper(boardId, file)
-            event.target.value = ''
-          }}
+    <div className="flex flex-col gap-3">
+      {url ? (
+        <img
+          src={url}
+          alt="Fond actuel du tableau"
+          className="max-h-44 w-full rounded-lg border border-line object-cover"
         />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" size="sm" onClick={() => input.current?.click()}>
-            Choisir une image…
-          </Button>
-          {url ? (
-            <ConfirmButton
-              onConfirm={() => void store.clearWallpaper(boardId)}
-              confirmLabel="Retirer ?"
-            >
-              Retirer le fond
-            </ConfirmButton>
-          ) : null}
-        </div>
-        <p className="text-xs text-muted">
-          Les grandes images sont réduites à 2 560 px de côté avant d'être envoyées.
+      ) : (
+        <p className="rounded-lg border border-dashed border-line p-5 text-center text-xs text-muted">
+          Aucun fond pour l'instant.
         </p>
+      )}
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (file) void store.setWallpaper(boardId, file)
+          event.target.value = ''
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" size="sm" onClick={() => input.current?.click()}>
+          Choisir une image…
+        </Button>
+        {url ? (
+          <ConfirmButton
+            onConfirm={() => void store.clearWallpaper(boardId)}
+            confirmLabel="Retirer ?"
+          >
+            Retirer le fond
+          </ConfirmButton>
+        ) : null}
       </div>
-    </Modal>
+      <p className="text-xs text-muted">
+        Les grandes images sont réduites à 2 560 px de côté avant d'être envoyées. Le fond reste
+        visible sur le tableau, les objectifs, les rappels et le calendrier.
+      </p>
+    </div>
   )
 }
