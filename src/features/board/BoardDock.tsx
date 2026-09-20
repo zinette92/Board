@@ -13,7 +13,7 @@ import { CardFace } from './CardTile'
  * Pictogrammes monochromes, tracés au trait et teintés par `currentColor` :
  * ils suivent donc le thème et l'état du bouton sans variante dédiée.
  */
-function DockIcon({ slot }: { slot: DockSlot }) {
+function DockIcon({ slot, size = 21 }: { slot: DockSlot; size?: number }) {
   const paths: Record<DockSlot, ReactNode> = {
     // Deux cartes empilées : un gabarit dont on tire des copies.
     models: (
@@ -49,8 +49,8 @@ function DockIcon({ slot }: { slot: DockSlot }) {
   return (
     <svg
       aria-hidden
-      width="21"
-      height="21"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -151,14 +151,21 @@ export function BoardDock({
   }
 
   /**
-   * Vers une colonne : la carte s'en va. Sauf un modèle, dont c'est une
-   * **copie** qui part — l'original doit rester disponible.
+   * La carte s'en va vers une colonne ou vers une autre section — une idée
+   * mûrie passe d'INBOX à BACKLOG sans détour par le tableau. Un modèle fait
+   * exception : c'est une **copie** qui part, l'original doit rester.
    */
   const send = async (card: Card, listId: ID, model: boolean) => {
     setSending(null)
     const moved = model ? await store.duplicateCard(card.id) : card
     if (!moved) return
     await store.moveCard(moved.id, listId, Number.MAX_SAFE_INTEGER)
+  }
+
+  /** Vers une section : sa liste est créée si elle n'existait pas encore. */
+  const sendToSlot = async (card: Card, slot: DockSlot, model: boolean) => {
+    const list = await listFor(slot)
+    if (list) await send(card, list.id, model)
   }
 
   return (
@@ -214,24 +221,40 @@ export function BoardDock({
                     </div>
 
                     {sending === card.id ? (
-                      columns.length === 0 ? (
-                        <p className="pl-1 text-xs text-muted">
-                          Aucune colonne sur le tableau pour l'instant.
-                        </p>
-                      ) : (
-                        <div className="flex flex-wrap gap-1 pl-1">
-                          {columns.map((list) => (
+                      <div className="flex flex-col gap-1.5 rounded-lg bg-surface-2/60 p-2">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="mr-1 text-[11px] text-muted">Dans la barre</span>
+                          {DOCK_SLOTS.filter((slot) => slot !== active.slot).map((slot) => (
                             <Button
-                              key={list.id}
+                              key={slot}
                               size="sm"
-                              onClick={() => void send(card, list.id, active.slot === 'models')}
+                              onClick={() =>
+                                void sendToSlot(card, slot, active.slot === 'models')
+                              }
                             >
-                              {active.slot === 'models' ? '⧉ ' : '→ '}
-                              {list.name}
+                              <DockIcon slot={slot} size={13} />
+                              {DOCK_NAMES[slot]}
                             </Button>
                           ))}
                         </div>
-                      )
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="mr-1 text-[11px] text-muted">Sur le tableau</span>
+                          {columns.length === 0 ? (
+                            <span className="text-xs text-muted">aucune colonne</span>
+                          ) : (
+                            columns.map((list) => (
+                              <Button
+                                key={list.id}
+                                size="sm"
+                                onClick={() => void send(card, list.id, active.slot === 'models')}
+                              >
+                                {active.slot === 'models' ? '⧉ ' : '→ '}
+                                {list.name}
+                              </Button>
+                            ))
+                          )}
+                        </div>
+                      </div>
                     ) : null}
                   </li>
                 ))}
