@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { DatePicker } from '../../components/DatePicker'
 import {
@@ -12,6 +12,7 @@ import {
   TextInput,
   cx,
 } from '../../components/ui'
+import { makeReminder } from '../../lib/create'
 import { addDays, daysBetween, formatDay, formatFullDay, today } from '../../lib/dates'
 import { notify, permissionState, requestPermission } from '../../lib/notify'
 import type { NotifyPermission } from '../../lib/notify'
@@ -21,7 +22,8 @@ import {
   WEEKDAYS,
   describeRepeat,
   formatWhen,
-  isFinished,
+  isArchived,
+  isValidated,
   leadNoticesOn,
   nextOccurrence,
   occurrencesBetween,
@@ -94,8 +96,20 @@ let draggingReminderId: ID | null = null
 export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
   const store = useStore()
   const [openId, setOpenId] = useState<ID | null>(null)
-  /** Rappel tout juste créé, pas encore validé : fermer sans « Terminé » l'efface. */
-  const [pendingId, setPendingId] = useState<ID | null>(null)
+  /**
+   * Rappel en cours de création : un BROUILLON local, absent du store et de la
+   * base tant que « Enregistrer » n'a pas été cliqué. Tant qu'il n'est pas
+   * créé, il n'existe pas — ni notification, ni pastille, ni « À valider ».
+   */
+  const [draft, setDraft] = useState<Reminder | null>(null)
+  const creating = draft !== null
+  /** Section « Archives » dépliée, tout en bas. */
+  const [archivesOpen, setArchivesOpen] = useState(false)
+  const archivesRef = useRef<HTMLDivElement>(null)
+  // Dépliée, la section vient se placer sous les yeux : elle est en bas de page.
+  useEffect(() => {
+    if (archivesOpen) archivesRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }, [archivesOpen])
   /** Menu contextuel (clic droit sur une ligne) : quel rappel, où. */
   const [menu, setMenu] = useState<{ reminderId: ID; x: number; y: number } | null>(null)
   /** Rappel en cours de glissement (état : les cibles se re-rendent). */
@@ -129,7 +143,7 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
       if (event.ctrlKey || event.metaKey || event.altKey) return
-      if (openId) return
+      if (openId || creating) return
       const target = event.target as HTMLElement | null
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
       setOffset((current) => current + (event.key === 'ArrowRight' ? 1 : -1))
@@ -137,15 +151,32 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [scope, openId])
+  }, [scope, openId, creating])
 
   const day = today()
   const pending = useMemo(() => pendingOccurrences(store.reminders, day), [store.reminders, day])
   const notices = useMemo(() => leadNoticesOn(store.reminders, day), [store.reminders, day])
 
+  /**
+   * Archivés : jamais mêlés aux listes, quelle que soit la vue — on les
+   * consulte depuis la section du bas, du plus récent au plus ancien.
+   */
+  const archived = useMemo(
+    () =>
+      store.reminders
+        .filter((reminder) => isArchived(reminder, day))
+        .sort((a, b) => b.startsOn.localeCompare(a.startsOn)),
+    [store.reminders, day],
+  )
+
   const sorted = useMemo(() => {
-    const rank = (reminder: Reminder) => nextOccurrence(reminder, day) ?? '9999-12-31'
-    return [...store.reminders].sort((a, b) => {
+    // Un rappel unique échu mais pas encore validé se range à sa date
+    // d'origine : il remonte en tête au lieu de tomber en fin de liste.
+    const rank = (reminder: Reminder) =>
+      nextOccurrence(reminder, day) ??
+      (reminder.repeat === null && reminder.active ? reminder.startsOn : '9999-12-31')
+    const live = store.reminders.filter((reminder) => !isArchived(reminder, day))
+    return live.sort((a, b) => {
       if (a.active !== b.active) return a.active ? -1 : 1
       return rank(a).localeCompare(rank(b))
     })
@@ -176,13 +207,9 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
     return map
   }, [filtered])
 
-  /** « + » d'un domaine : un rappel vide y naît et sa fiche s'ouvre aussitôt. */
-  const create = async (category: Reminder['domain']) => {
-    const created = await store.createReminder('', category)
-    if (!created) return
-    setPendingId(created.id)
-    setOpenId(created.id)
-  }
+  /** « + » d'un domaine : la fiche s'ouvre sur un brouillon — rien n'est écrit. */
+  const create = (category: Reminder['domain']) =>
+    setDraft({ ...makeReminder(), domain: category })
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
@@ -285,7 +312,7 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
                   size="sm"
                   variant="ghost"
                   className="ml-auto"
-                  onClick={() => void create(category)}
+                  onClick={() => create(category)}
                 >
                   + Rappel
                 </Button>
@@ -303,20 +330,8 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
                       reminder={reminder}
                       showOn={on}
                       open={openId === reminder.id}
-                      onToggle={() => {
-                        // Fermeture sans validation d'un rappel encore en
-                        // attente : on annule l'ajout.
-                        if (openId === reminder.id && pendingId === reminder.id) {
-                          void store.deleteReminder(reminder.id)
-                          setPendingId(null)
-                        }
-                        setOpenId(openId === reminder.id ? null : reminder.id)
-                      }}
-                      onDone={() => {
-                        setPendingId(null)
-                        setOpenId(null)
-                      }}
-                      pending={pendingId === reminder.id}
+                      onToggle={() => setOpenId(openId === reminder.id ? null : reminder.id)}
+                      onDone={() => setOpenId(null)}
                       onMenu={(x, y) => setMenu({ reminderId: reminder.id, x, y })}
                       dragging={draggingId === reminder.id}
                       onDragChange={(id) => {
@@ -370,10 +385,59 @@ export function RemindersView({ hasWallpaper }: { hasWallpaper: boolean }) {
           />
         ) : null}
 
-        <p className="text-xs text-muted">
-          Les rappels vivent uniquement dans le <strong className="text-ink">calendrier</strong> :
-          ils ne créent aucune carte et n'apparaissent pas sur le tableau.
-        </p>
+        {/* Archives : les rappels uniques dont l'affaire est close. Jamais
+            mêlés aux listes du dessus — on y accède d'ici, à la demande. */}
+        <div ref={archivesRef} className="flex flex-col gap-2">
+          <button
+            type="button"
+            aria-expanded={archivesOpen}
+            onClick={() => setArchivesOpen(!archivesOpen)}
+            className="flex items-center gap-1.5 self-start rounded-md py-0.5 text-xs font-medium text-muted transition-colors hover:text-ink"
+          >
+            <span aria-hidden>🗄</span>
+            Archives
+            <span className="tabular-nums">{archived.length}</span>
+            <span aria-hidden>{archivesOpen ? '▾' : '▸'}</span>
+          </button>
+          {archivesOpen ? (
+            archived.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-line p-4 text-center text-xs text-muted">
+                Aucun rappel archivé — un rappel unique s'archive dès qu'il est validé.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {archived.map((reminder) => (
+                  <ReminderCard
+                    key={reminder.id}
+                    reminder={reminder}
+                    showOn={null}
+                    archived
+                    open={openId === reminder.id}
+                    onToggle={() => setOpenId(openId === reminder.id ? null : reminder.id)}
+                    onDone={() => setOpenId(null)}
+                    onMenu={(x, y) => setMenu({ reminderId: reminder.id, x, y })}
+                    dragging={false}
+                    onDragChange={() => {}}
+                  />
+                ))}
+              </ul>
+            )
+          ) : null}
+        </div>
+
+        {draft ? (
+          <ReminderEditor
+            reminder={draft}
+            creating
+            set={(patch) => setDraft((current) => (current ? { ...current, ...patch } : current))}
+            onClose={() => setDraft(null)}
+            onDone={async () => {
+              // La fiche ne se ferme que si l'écriture a réussi : sinon la
+              // saisie disparaîtrait derrière le bandeau d'erreur.
+              if (await store.createReminder(draft)) setDraft(null)
+            }}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -412,6 +476,12 @@ function ReminderContextMenu({
   // L'échéance à valider : d'abord celle qui attend, sinon la prochaine.
   const pending = pendingOccurrences([reminder], today())[0]?.on ?? null
   const target = pending ?? nextOccurrence(reminder, today())
+  const archived = isArchived(reminder)
+  // Rétablir = retirer la validation. Sans effet sur un rappel archivé par
+  // l'âge : celui-là ne revient qu'en recevant une nouvelle date, dans sa fiche.
+  const restorable =
+    archived &&
+    !isArchived({ ...reminder, doneOn: reminder.doneOn.filter((on) => on !== reminder.startsOn) })
 
   return (
     <>
@@ -430,30 +500,52 @@ function ReminderContextMenu({
           top: Math.min(y, globalThis.innerHeight - 150),
         }}
       >
-        <Button
-          size="sm"
-          variant="ghost"
-          className="justify-start"
-          disabled={target === null}
-          title={target ? `Valider l'échéance du ${formatFullDay(target)}` : 'Aucune échéance'}
-          onClick={() => {
-            onClose()
-            if (target) void store.setReminderDone(reminder.id, target, true)
-          }}
-        >
-          ✓ Valider{target ? ` (${formatDay(target)})` : ''}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="justify-start"
-          onClick={() => {
-            onClose()
-            void store.updateReminder(reminder.id, { active: !reminder.active })
-          }}
-        >
-          {reminder.active ? '⏸ Mettre en pause' : '▶ Réactiver'}
-        </Button>
+        {archived ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="justify-start"
+            disabled={!restorable}
+            title={
+              restorable
+                ? 'Retirer la validation : le rappel quitte les archives'
+                : 'Trop ancien pour être rétabli tel quel : ouvre-le et donne-lui une nouvelle date'
+            }
+            onClick={() => {
+              onClose()
+              void store.setReminderDone(reminder.id, reminder.startsOn, false)
+            }}
+          >
+            ↺ Rétablir
+          </Button>
+        ) : (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="justify-start"
+              disabled={target === null}
+              title={target ? `Valider l'échéance du ${formatFullDay(target)}` : 'Aucune échéance'}
+              onClick={() => {
+                onClose()
+                if (target) void store.setReminderDone(reminder.id, target, true)
+              }}
+            >
+              ✓ Valider{target ? ` (${formatDay(target)})` : ''}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="justify-start"
+              onClick={() => {
+                onClose()
+                void store.updateReminder(reminder.id, { active: !reminder.active })
+              }}
+            >
+              {reminder.active ? '⏸ Mettre en pause' : '▶ Réactiver'}
+            </Button>
+          </>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -644,18 +736,35 @@ export function useReminderNotifications(day: string) {
 /**
  * La date d'un rappel, dans un cadre qui se colore à l'approche :
  * jaune à 30 jours, orange à 7, rouge à 2 — et rouge aussi une fois passée,
- * tant qu'elle n'a pas été validée. Au-delà de 30 jours, neutre.
+ * tant qu'elle n'a pas été validée. Au-delà de 30 jours, neutre. `done` :
+ * l'échéance est validée, il n'y a plus rien à signaler — neutre et estompé,
+ * quelle que soit la date.
  */
-function DueChip({ on, at }: { on: string; at: string }) {
+function DueChip({ on, at, done = false }: { on: string; at: string; done?: boolean }) {
   const left = daysBetween(today(), on)
-  const color =
-    left <= 2 ? 'var(--danger)' : left <= 7 ? 'var(--warn)' : left <= 30 ? '#eab308' : null
+  const color = done
+    ? null
+    : left <= 2
+      ? 'var(--danger)'
+      : left <= 7
+        ? 'var(--warn)'
+        : left <= 30
+          ? '#eab308'
+          : null
   return (
     <span
-      title={left < 0 ? `Dépassée depuis ${-left} j` : left === 0 ? 'Aujourd’hui' : `Dans ${left} j`}
+      title={
+        done
+          ? 'Validée'
+          : left < 0
+            ? `Dépassée depuis ${-left} j`
+            : left === 0
+              ? 'Aujourd’hui'
+              : `Dans ${left} j`
+      }
       className={cx(
         'rounded border px-1.5 py-px text-[11px] font-medium tabular-nums',
-        left <= 2 ? 'text-danger' : left <= 7 ? 'text-warn' : 'text-ink',
+        done ? 'text-muted' : left <= 2 ? 'text-danger' : left <= 7 ? 'text-warn' : 'text-ink',
       )}
       style={
         color
@@ -674,10 +783,10 @@ function DueChip({ on, at }: { on: string; at: string }) {
 function ReminderCard({
   reminder,
   showOn,
+  archived = false,
   open,
   onToggle,
   onDone,
-  pending,
   onMenu,
   dragging,
   onDragChange,
@@ -685,13 +794,13 @@ function ReminderCard({
   reminder: Reminder
   /** Occurrence à afficher (vue fenêtrée) ; null = la prochaine en absolu. */
   showOn: string | null
+  /** Ligne de la section « Archives » : date neutre, domaine rappelé, pas de glisser. */
+  archived?: boolean
   open: boolean
-  /** Ouvre la fiche, ou la ferme SANS valider (un ajout en attente est annulé). */
+  /** Ouvre la fiche, ou la referme. */
   onToggle: () => void
-  /** « Terminé » : la fiche se ferme et l'ajout est acquis. */
+  /** « Terminé » : la fiche se ferme. */
   onDone: () => void
-  /** Ajout en attente : un clic hors fiche ne doit pas emporter la saisie. */
-  pending: boolean
   onMenu: (x: number, y: number) => void
   /** Vraie pour la ligne en cours de glissement : elle s'estompe sur place. */
   dragging: boolean
@@ -700,22 +809,17 @@ function ReminderCard({
   const store = useStore()
   const [noteOpen, setNoteOpen] = useState(false)
   const next = nextOccurrence(reminder, today())
-  const finished = isFinished(reminder)
   const waiting = pendingOccurrences([reminder], today()).length
-  const mode = modeOf(reminder.repeat)
   const labels = store.labels.filter((label) => reminder.labelIds.includes(label.id))
-  // Étiquette supprimée depuis : la référence reste sur le rappel (décision
-  // volontaire, voir hasOrphanLabel) mais ne résout plus vers rien — elle
-  // s'affiche donc comme « Autre » plutôt que de disparaître silencieusement.
-  const orphanIds = reminder.labelIds.filter((id) => !store.labels.some((label) => label.id === id))
-
-  const set = (patch: Partial<Reminder>) => store.updateReminder(reminder.id, patch)
+  // Date affichée : l'occurrence de la fenêtre, sinon la prochaine — et pour un
+  // rappel unique échu (archivé, ou encore à valider), sa date d'origine.
+  const on = showOn ?? next ?? (reminder.repeat === null ? reminder.startsOn : null)
 
   const hasNote = reminder.note.trim().length > 0
 
   return (
     <li
-      draggable
+      draggable={!archived}
       onDragStart={(event) => {
         onDragChange(reminder.id)
         event.dataTransfer.effectAllowed = 'move'
@@ -761,20 +865,20 @@ function ReminderCard({
           </Pill>
         ) : null}
 
-        {!reminder.active ? (
+        {!reminder.active && !archived ? (
           <Pill tone="muted">en pause</Pill>
-        ) : showOn ? (
-          <DueChip on={showOn} at={reminder.at} />
-        ) : finished ? (
-          <Pill tone="ok">passé</Pill>
-        ) : next ? (
-          <DueChip on={next} at={reminder.at} />
+        ) : on ? (
+          <DueChip on={on} at={reminder.at} done={archived || isValidated(reminder, on)} />
         ) : (
           <Pill tone="muted">aucune date</Pill>
         )}
 
-        {/* Périodicité tout à droite, demande explicite du user. */}
-        <span className="shrink-0 text-xs text-muted">{describeRepeat(reminder.repeat)}</span>
+        {/* Périodicité tout à droite, demande explicite du user. Aux archives
+            tout est « une seule fois » : on y rappelle plutôt le domaine, que
+            la liste à plat ne montre plus. */}
+        <span className="shrink-0 text-xs text-muted">
+          {archived ? GOAL_CATEGORY_LABELS[reminder.domain] : describeRepeat(reminder.repeat)}
+        </span>
 
         {/* Une note existe : le chevron, à droite, la déplie sous la ligne. */}
         {hasNote ? (
@@ -799,250 +903,318 @@ function ReminderCard({
         </p>
       ) : null}
 
-      <Modal
-        open={open}
-        onClose={onToggle}
-        dismissible={!pending}
-        wide
-        title={reminder.title.trim() || 'Rappel sans titre'}
-        footer={
-          <>
-            <span className="mr-auto text-xs text-muted">
-              {next
-                ? `Prochaine échéance : ${formatWhen(next, reminder.at)}`
-                : 'Aucune échéance à venir.'}
-              {reminder.leadDays > 0 && next
-                ? ` · notification le ${formatFullDay(addDays(next, -reminder.leadDays))}`
-                : ''}
-            </span>
-            <ConfirmButton
-              confirmLabel="Supprimer pour de bon"
-              onConfirm={() => {
-                // Fermer AVANT de supprimer : la fiche perdrait sa source.
-                onDone()
-                void store.deleteReminder(reminder.id)
-              }}
-            >
-              Supprimer
-            </ConfirmButton>
-            <Button variant="primary" onClick={onDone}>
-              Terminé
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          {/* --------------------------------------------------- Étiquettes */}
+      {open ? (
+        <ReminderEditor
+          reminder={reminder}
+          creating={false}
+          set={(patch) => store.updateReminder(reminder.id, patch)}
+          onClose={onToggle}
+          onDone={onDone}
+          onDelete={() => {
+            // Fermer AVANT de supprimer : la fiche perdrait sa source.
+            onDone()
+            void store.deleteReminder(reminder.id)
+          }}
+        />
+      ) : null}
+    </li>
+  )
+}
+
+/* ---------------------------------------------------------- Fiche de rappel */
+
+/**
+ * La fiche d'un rappel. Deux emplois, un seul formulaire :
+ *  - rappel EXISTANT : chaque champ s'enregistre aussitôt (`set` écrit en
+ *    base), « Terminé » ne fait que fermer ;
+ *  - CRÉATION : `reminder` est un brouillon local et `set` ne touche que lui.
+ *    Seul « Enregistrer » le fait exister ; fermer autrement l'abandonne, sans
+ *    qu'il ait jamais rien déclenché.
+ */
+function ReminderEditor({
+  reminder,
+  set,
+  creating,
+  onClose,
+  onDone,
+  onDelete,
+}: {
+  reminder: Reminder
+  set: (patch: Partial<Reminder>) => void
+  creating: boolean
+  /** Fermer sans valider : la croix, Échap — et le clic hors fiche, hors création. */
+  onClose: () => void
+  /** « Terminé » (rappel existant) ou « Enregistrer » (création). */
+  onDone: () => void
+  /** Absent en création : il n'y a encore rien à supprimer. */
+  onDelete?: () => void
+}) {
+  const store = useStore()
+  const next = nextOccurrence(reminder, today())
+  const mode = modeOf(reminder.repeat)
+  // Étiquette supprimée depuis : la référence reste sur le rappel (décision
+  // volontaire, voir hasOrphanLabel) mais ne résout plus vers rien — elle
+  // s'affiche donc comme « Autre » plutôt que de disparaître silencieusement.
+  const orphanIds = reminder.labelIds.filter((id) => !store.labels.some((label) => label.id === id))
+  const titled = reminder.title.trim().length > 0
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      // En création, un clic hors fiche ne doit pas emporter la saisie.
+      dismissible={!creating}
+      wide
+      title={reminder.title.trim() || (creating ? 'Nouveau rappel' : 'Rappel sans titre')}
+      footer={
+        <>
+          <span className="mr-auto text-xs text-muted">
+            {next
+              ? `Prochaine échéance : ${formatWhen(next, reminder.at)}`
+              : 'Aucune échéance à venir.'}
+            {reminder.leadDays > 0 && next
+              ? ` · notification le ${formatFullDay(addDays(next, -reminder.leadDays))}`
+              : ''}
+          </span>
+          {creating ? (
+            <>
+              <Button variant="ghost" onClick={onClose}>
+                Annuler
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!titled}
+                title={titled ? undefined : 'Donne d’abord un titre au rappel'}
+                onClick={onDone}
+              >
+                Enregistrer
+              </Button>
+            </>
+          ) : (
+            <>
+              {onDelete ? (
+                <ConfirmButton confirmLabel="Supprimer pour de bon" onConfirm={onDelete}>
+                  Supprimer
+                </ConfirmButton>
+              ) : null}
+              <Button variant="primary" onClick={onDone}>
+                Terminé
+              </Button>
+            </>
+          )}
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {/* --------------------------------------------------- Étiquettes */}
+        <div>
+          <span className="mb-1 block text-xs font-semibold tracking-wide text-muted uppercase">
+            Étiquette
+          </span>
+          {store.labels.length === 0 && orphanIds.length === 0 ? (
+            <p className="text-xs text-muted">Crée des étiquettes dans les réglages ⚙.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {store.labels.map((label) => {
+                const on = reminder.labelIds.includes(label.id)
+                return (
+                  <button
+                    key={label.id}
+                    type="button"
+                    // Une seule étiquette par rappel : choisir remplace,
+                    // re-cliquer retire.
+                    onClick={() => set({ labelIds: on ? [] : [label.id] })}
+                    className={cx(
+                      'rounded border px-2 py-0.5 text-xs font-medium transition-opacity',
+                      on ? 'ring-1 ring-accent' : 'opacity-60 hover:opacity-100',
+                    )}
+                    style={chipStyle(label.color)}
+                  >
+                    {on ? '✓ ' : ''}
+                    {label.name}
+                  </button>
+                )
+              })}
+              {/* Étiquette(s) supprimée(s) des réglages depuis : la référence
+                  reste sur ce rappel jusqu'à détachement explicite — voir
+                  hasOrphanLabel plus haut. */}
+              {orphanIds.length > 0 ? (
+                <button
+                  type="button"
+                  title="Cette étiquette a été supprimée des réglages : détacher la référence"
+                  onClick={() =>
+                    set({
+                      labelIds: reminder.labelIds.filter((id) => !orphanIds.includes(id)),
+                    })
+                  }
+                  className="rounded border border-dashed px-2 py-0.5 text-xs font-medium text-muted hover:text-ink"
+                >
+                  ✕ Autre (détacher)
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <Field label="Titre">
+          <TextInput
+            value={reminder.title}
+            placeholder="Ex. Déclaration d'impôts"
+            onChange={(event) => set({ title: event.target.value })}
+          />
+        </Field>
+
+        <Field label="Note" hint="Précision, lien, numéro de dossier…">
+          <TextArea
+            rows={2}
+            value={reminder.note}
+            onChange={(event) => set({ note: event.target.value })}
+          />
+        </Field>
+
+        <Field label="Domaine">
+          <Select
+            value={reminder.domain}
+            onChange={(event) => set({ domain: event.target.value as Reminder['domain'] })}
+          >
+            {GOAL_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {GOAL_CATEGORY_LABELS[category]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        {/* ------------------------------------------------------ Rythme */}
+        <div className="rounded-lg border border-line p-3">
+          <span className="mb-2 block text-xs font-semibold tracking-wide text-muted uppercase">
+            Rythme
+          </span>
+          <Select
+            value={mode}
+            aria-label="Type de rappel"
+            onChange={(event) =>
+              set({ repeat: repeatFor(event.target.value as RepeatMode, reminder.repeat) })
+            }
+          >
+            {(Object.keys(MODE_LABELS) as RepeatMode[]).map((key) => (
+              <option key={key} value={key}>
+                {MODE_LABELS[key]}
+              </option>
+            ))}
+          </Select>
+
+          {mode === 'weekdays' && reminder.repeat?.kind === 'weekdays' ? (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {WEEKDAYS.map((weekday) => {
+                const on = reminder.repeat?.kind === 'weekdays' && reminder.repeat.days.includes(weekday.value)
+                return (
+                  <button
+                    key={weekday.value}
+                    type="button"
+                    title={weekday.label}
+                    onClick={() => {
+                      if (reminder.repeat?.kind !== 'weekdays') return
+                      const days = on
+                        ? reminder.repeat.days.filter((value) => value !== weekday.value)
+                        : [...reminder.repeat.days, weekday.value]
+                      set({ repeat: { kind: 'weekdays', days } })
+                    }}
+                    className={cx(
+                      'size-8 rounded-lg border text-xs font-semibold transition-colors',
+                      on
+                        ? 'border-accent bg-accent text-accent-ink'
+                        : 'border-line text-muted hover:border-accent',
+                    )}
+                  >
+                    {weekday.short}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+
+          {mode === 'interval' && reminder.repeat?.kind === 'interval' ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted">Tous les</span>
+              <TextInput
+                type="number"
+                min={1}
+                value={reminder.repeat.interval}
+                className="w-20"
+                aria-label="Intervalle"
+                onChange={(event) => {
+                  if (reminder.repeat?.kind !== 'interval') return
+                  set({
+                    repeat: {
+                      ...reminder.repeat,
+                      interval: Math.max(1, Number(event.target.value) || 1),
+                    },
+                  })
+                }}
+              />
+              <Select
+                value={reminder.repeat.unit}
+                className="w-32"
+                aria-label="Unité"
+                onChange={(event) => {
+                  if (reminder.repeat?.kind !== 'interval') return
+                  set({
+                    repeat: { ...reminder.repeat, unit: event.target.value as RecurrenceUnit },
+                  })
+                }}
+              >
+                {RECURRENCE_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {UNIT_LABELS[unit]}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
+
+          <p className="mt-2 text-xs text-muted">{describeRepeat(reminder.repeat)}</p>
+        </div>
+
+        {/* -------------------------------------------------- Jour et heure */}
+        <div className="flex flex-wrap items-end gap-3">
           <div>
             <span className="mb-1 block text-xs font-semibold tracking-wide text-muted uppercase">
-              Étiquette
+              {reminder.repeat === null ? 'Jour' : 'À partir du'}
             </span>
-            {store.labels.length === 0 && orphanIds.length === 0 ? (
-              <p className="text-xs text-muted">Crée des étiquettes dans les réglages ⚙.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {store.labels.map((label) => {
-                  const on = reminder.labelIds.includes(label.id)
-                  return (
-                    <button
-                      key={label.id}
-                      type="button"
-                      // Une seule étiquette par rappel : choisir remplace,
-                      // re-cliquer retire.
-                      onClick={() => set({ labelIds: on ? [] : [label.id] })}
-                      className={cx(
-                        'rounded border px-2 py-0.5 text-xs font-medium transition-opacity',
-                        on ? 'ring-1 ring-accent' : 'opacity-60 hover:opacity-100',
-                      )}
-                      style={chipStyle(label.color)}
-                    >
-                      {on ? '✓ ' : ''}
-                      {label.name}
-                    </button>
-                  )
-                })}
-                {/* Étiquette(s) supprimée(s) des réglages depuis : la référence
-                    reste sur ce rappel jusqu'à détachement explicite — voir
-                    hasOrphanLabel plus haut. */}
-                {orphanIds.length > 0 ? (
-                  <button
-                    type="button"
-                    title="Cette étiquette a été supprimée des réglages : détacher la référence"
-                    onClick={() =>
-                      set({
-                        labelIds: reminder.labelIds.filter((id) => !orphanIds.includes(id)),
-                      })
-                    }
-                    className="rounded border border-dashed px-2 py-0.5 text-xs font-medium text-muted hover:text-ink"
-                  >
-                    ✕ Autre (détacher)
-                  </button>
-                ) : null}
-              </div>
-            )}
+            <DatePicker
+              day={reminder.startsOn}
+              time={reminder.at}
+              withTime
+              onSelect={(day, at) => set({ startsOn: day, at: at ?? reminder.at })}
+              trigger={(toggle) => (
+                <Button size="sm" onClick={toggle}>
+                  📅 {formatFullDay(reminder.startsOn)} à {reminder.at}
+                </Button>
+              )}
+            />
           </div>
 
-          <Field label="Titre">
-            <TextInput
-              value={reminder.title}
-              placeholder="Ex. Déclaration d'impôts"
-              onChange={(event) => set({ title: event.target.value })}
-            />
-          </Field>
-
-          <Field label="Note" hint="Précision, lien, numéro de dossier…">
-            <TextArea
-              rows={2}
-              value={reminder.note}
-              onChange={(event) => set({ note: event.target.value })}
-            />
-          </Field>
-
-          <Field label="Domaine">
-            <Select
-              value={reminder.domain}
-              onChange={(event) => set({ domain: event.target.value as Reminder['domain'] })}
-            >
-              {GOAL_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {GOAL_CATEGORY_LABELS[category]}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          {/* ------------------------------------------------------ Rythme */}
-          <div className="rounded-lg border border-line p-3">
-            <span className="mb-2 block text-xs font-semibold tracking-wide text-muted uppercase">
-              Rythme
+          <div>
+            <span className="mb-1 block text-xs font-semibold tracking-wide text-muted uppercase">
+              Notification
             </span>
-            <Select
-              value={mode}
-              aria-label="Type de rappel"
-              onChange={(event) =>
-                set({ repeat: repeatFor(event.target.value as RepeatMode, reminder.repeat) })
-              }
-            >
-              {(Object.keys(MODE_LABELS) as RepeatMode[]).map((key) => (
-                <option key={key} value={key}>
-                  {MODE_LABELS[key]}
-                </option>
-              ))}
-            </Select>
-
-            {mode === 'weekdays' && reminder.repeat?.kind === 'weekdays' ? (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {WEEKDAYS.map((weekday) => {
-                  const on = reminder.repeat?.kind === 'weekdays' && reminder.repeat.days.includes(weekday.value)
-                  return (
-                    <button
-                      key={weekday.value}
-                      type="button"
-                      title={weekday.label}
-                      onClick={() => {
-                        if (reminder.repeat?.kind !== 'weekdays') return
-                        const days = on
-                          ? reminder.repeat.days.filter((value) => value !== weekday.value)
-                          : [...reminder.repeat.days, weekday.value]
-                        set({ repeat: { kind: 'weekdays', days } })
-                      }}
-                      className={cx(
-                        'size-8 rounded-lg border text-xs font-semibold transition-colors',
-                        on
-                          ? 'border-accent bg-accent text-accent-ink'
-                          : 'border-line text-muted hover:border-accent',
-                      )}
-                    >
-                      {weekday.short}
-                    </button>
-                  )
-                })}
-              </div>
-            ) : null}
-
-            {mode === 'interval' && reminder.repeat?.kind === 'interval' ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="text-sm text-muted">Tous les</span>
-                <TextInput
-                  type="number"
-                  min={1}
-                  value={reminder.repeat.interval}
-                  className="w-20"
-                  aria-label="Intervalle"
-                  onChange={(event) => {
-                    if (reminder.repeat?.kind !== 'interval') return
-                    set({
-                      repeat: {
-                        ...reminder.repeat,
-                        interval: Math.max(1, Number(event.target.value) || 1),
-                      },
-                    })
-                  }}
-                />
-                <Select
-                  value={reminder.repeat.unit}
-                  className="w-32"
-                  aria-label="Unité"
-                  onChange={(event) => {
-                    if (reminder.repeat?.kind !== 'interval') return
-                    set({
-                      repeat: { ...reminder.repeat, unit: event.target.value as RecurrenceUnit },
-                    })
-                  }}
-                >
-                  {RECURRENCE_UNITS.map((unit) => (
-                    <option key={unit} value={unit}>
-                      {UNIT_LABELS[unit]}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            ) : null}
-
-            <p className="mt-2 text-xs text-muted">{describeRepeat(reminder.repeat)}</p>
-          </div>
-
-          {/* -------------------------------------------------- Jour et heure */}
-          <div className="flex flex-wrap items-end gap-3">
-            <div>
-              <span className="mb-1 block text-xs font-semibold tracking-wide text-muted uppercase">
-                {reminder.repeat === null ? 'Jour' : 'À partir du'}
-              </span>
-              <DatePicker
-                day={reminder.startsOn}
-                time={reminder.at}
-                withTime
-                onSelect={(day, at) => set({ startsOn: day, at: at ?? reminder.at })}
-                trigger={(toggle) => (
-                  <Button size="sm" onClick={toggle}>
-                    📅 {formatFullDay(reminder.startsOn)} à {reminder.at}
-                  </Button>
-                )}
+            <div className="flex items-center gap-2">
+              <TextInput
+                type="number"
+                min={0}
+                max={365}
+                value={reminder.leadDays}
+                className="w-20"
+                onChange={(event) =>
+                  set({ leadDays: Math.max(0, Math.min(365, Number(event.target.value) || 0)) })
+                }
               />
-            </div>
-
-            <div>
-              <span className="mb-1 block text-xs font-semibold tracking-wide text-muted uppercase">
-                Notification
-              </span>
-              <div className="flex items-center gap-2">
-                <TextInput
-                  type="number"
-                  min={0}
-                  max={365}
-                  value={reminder.leadDays}
-                  className="w-20"
-                  onChange={(event) =>
-                    set({ leadDays: Math.max(0, Math.min(365, Number(event.target.value) || 0)) })
-                  }
-                />
-                <span className="text-xs text-muted">jours avant</span>
-              </div>
+              <span className="text-xs text-muted">jours avant</span>
             </div>
           </div>
-
         </div>
-      </Modal>
-    </li>
+      </div>
+    </Modal>
   )
 }

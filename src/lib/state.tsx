@@ -23,7 +23,6 @@ import {
   makeGoal,
   makeLabel,
   makeList,
-  makeReminder,
 } from './create'
 import { addDays, today } from './dates'
 import { afterRun, isDue } from './models'
@@ -154,7 +153,12 @@ export type Store = {
    */
   promoteStep: (goalId: ID, stepId: ID, period: GoalPeriod) => Promise<Goal | undefined>
 
-  createReminder: (title: string, domain?: Reminder['domain']) => Promise<Reminder | undefined>
+  /**
+   * Fait exister un rappel à partir du BROUILLON de la fiche de création. Tant
+   * que cette action n'a pas été appelée, le rappel n'est nulle part : ni en
+   * base, ni dans les notifications, ni dans « À valider ».
+   */
+  createReminder: (draft: Reminder) => Promise<Reminder | undefined>
   /** Valide (ou dévalide) UNE occurrence datée d'un rappel. */
   setReminderDone: (id: ID, on: string, done: boolean) => Promise<void>
   updateReminder: (id: ID, patch: Partial<Reminder>) => Promise<void>
@@ -877,8 +881,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* ------------------------------------------------------------------ Rappels */
-      createReminder: async (title, domain) => {
-        const reminder = { ...makeReminder(title), ...(domain ? { domain } : {}) }
+      createReminder: async (draft) => {
+        // Horodaté à la validation, pas à l'ouverture de la fiche.
+        const at = nowIso()
+        const reminder = { ...draft, title: draft.title.trim(), createdAt: at, updatedAt: at }
         await repo.reminders.put(reminder)
         apply({ reminders: upsert(snap().reminders, [reminder]) })
         return reminder

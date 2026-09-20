@@ -128,13 +128,29 @@ export function nextOccurrence(reminder: Reminder, from = todayDay()): string | 
   return null
 }
 
-/** Le rappel est-il passé sans retour possible (unique et déjà échu) ? */
-export function isFinished(reminder: Reminder, today = todayDay()): boolean {
-  return reminder.repeat === null && reminder.startsOn < today
-}
-
 export function isValidated(reminder: Reminder, on: string): boolean {
   return reminder.doneOn.includes(on)
+}
+
+/**
+ * Fenêtre de rattrapage, en jours : au-delà, une échéance oubliée n'attend
+ * plus de validation.
+ */
+export const PENDING_LOOKBACK = 60
+
+/**
+ * Archivé = rappel UNIQUE dont l'affaire est close : son échéance est validée
+ * (même en avance), ou passée depuis si longtemps qu'elle n'attend plus rien.
+ * Déduit, jamais stocké — lui redonner une date le fait revenir tout seul.
+ * Un rappel récurrent ne s'archive pas : il se met en pause ou se supprime.
+ *
+ * Un rappel unique échu mais PAS validé n'est pas archivé : il reste dans sa
+ * liste, en rouge, jusqu'à ce qu'on s'en occupe.
+ */
+export function isArchived(reminder: Reminder, today = todayDay()): boolean {
+  if (reminder.repeat !== null) return false
+  if (isValidated(reminder, reminder.startsOn)) return true
+  return reminder.startsOn < addDays(today, -PENDING_LOOKBACK)
 }
 
 export type Pending = {
@@ -154,7 +170,7 @@ export type Pending = {
 export function pendingOccurrences(
   reminders: Reminder[],
   today = todayDay(),
-  lookback = 60,
+  lookback = PENDING_LOOKBACK,
 ): Pending[] {
   const from = addDays(today, -lookback)
   const out: Pending[] = []
