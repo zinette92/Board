@@ -616,6 +616,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // envie de la faire.
           description: goal.relevant.trim(),
           dueOn: goal.dueOn,
+          // Les étapes deviennent une checklist : la tâche garde le découpage
+          // de l'objectif, avec les dates et ce qui est déjà fait. C'est une
+          // copie prise à la conversion — cocher un élément ici ne coche pas
+          // l'étape d'origine ; c'est la carte entière qui porte l'objectif.
+          checklists:
+            goal.steps.length > 0
+              ? [
+                  {
+                    ...makeChecklist('Étapes'),
+                    items: goal.steps.map((step) => ({
+                      id: newId(),
+                      text: step.text,
+                      done: step.done,
+                      dueOn: step.dueOn,
+                      dueTime: null,
+                    })),
+                  },
+                ]
+              : [],
         }
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
