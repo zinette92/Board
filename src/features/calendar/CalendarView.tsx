@@ -13,6 +13,7 @@ import {
 } from '../../components/ui'
 import { addDays, formatFullDay, toDay, today } from '../../lib/dates'
 import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
+import { goalProgress } from '../../lib/goals'
 import type { GcalEvent } from '../../lib/gcal'
 import { chipStyle } from '../../lib/palette'
 import { isValidated, occurrencesBetween } from '../../lib/reminders'
@@ -123,6 +124,18 @@ export function CalendarView({
     }
     return map
   }, [store.goals])
+
+  /**
+   * Objectifs dont la cible est atteinte : leur puce se barre, comme celle
+   * d'un rappel validé. C'est déduit des cartes rattachées, jamais stocké —
+   * cocher la carte qui porte l'objectif barre donc la puce aussitôt.
+   */
+  const reachedGoals = useMemo(() => {
+    const live = store.cards.filter((card) => card.archivedAt === null)
+    return new Set(
+      store.goals.filter((goal) => goalProgress(goal, live).ratio >= 1).map((goal) => goal.id),
+    )
+  }, [store.goals, store.cards])
 
   const boardsById = useMemo(
     () => new Map(store.boards.map((board) => [board.id, board] as const)),
@@ -235,6 +248,7 @@ export function CalendarView({
             todayDay={todayDay}
             cardsByDay={cardsByDay}
             goalsByDay={goalsByDay}
+            reachedGoals={reachedGoals}
             remindersByDay={remindersByDay}
             gcalByDay={gcalByDay}
             labelsById={labelsById}
@@ -247,6 +261,7 @@ export function CalendarView({
             todayDay={todayDay}
             cardsByDay={cardsByDay}
             goalsByDay={goalsByDay}
+            reachedGoals={reachedGoals}
             remindersByDay={remindersByDay}
             gcalByDay={gcalByDay}
             labelsById={labelsById}
@@ -288,6 +303,8 @@ type ItemsProps = {
   todayDay: string
   cardsByDay: Map<string, Card[]>
   goalsByDay: Map<string, Goal[]>
+  /** Identifiants des objectifs atteints : leur puce se barre. */
+  reachedGoals: Set<ID>
   remindersByDay: Map<string, ReminderHit[]>
   gcalByDay: Map<string, GcalEvent[]>
   labelsById: Map<ID, Label>
@@ -338,13 +355,16 @@ function ReminderChip({ hit, labelsById }: { hit: ReminderHit; labelsById: Map<I
   )
 }
 
-function GoalChip({ goal }: { goal: Goal }) {
+function GoalChip({ goal, done }: { goal: Goal; done: boolean }) {
   return (
     <span
-      title={`Échéance de l'objectif « ${goal.title || 'sans titre'} »`}
-      className="truncate rounded border border-accent/40 bg-accent/10 px-1 py-0.5 text-[11px] font-medium"
+      title={`Échéance de l'objectif « ${goal.title || 'sans titre'} »${done ? ' — atteint' : ''}`}
+      className={cx(
+        'truncate rounded border border-accent/40 bg-accent/10 px-1 py-0.5 text-[11px] font-medium',
+        done && 'text-muted line-through opacity-60',
+      )}
     >
-      🎯 {goal.title || 'Objectif sans titre'}
+      {done ? '✓' : '🎯'} {goal.title || 'Objectif sans titre'}
     </span>
   )
 }
@@ -391,6 +411,7 @@ function MonthGrid({
   todayDay,
   cardsByDay,
   goalsByDay,
+  reachedGoals,
   remindersByDay,
   gcalByDay,
   labelsById,
@@ -456,7 +477,7 @@ function MonthGrid({
                 />
               ))}
               {(goalsByDay.get(day) ?? []).map((goal) => (
-                <GoalChip key={goal.id} goal={goal} />
+                <GoalChip key={goal.id} goal={goal} done={reachedGoals.has(goal.id)} />
               ))}
               {(cardsByDay.get(day) ?? []).map((card) => (
                 <CardChip
@@ -482,6 +503,7 @@ function AgendaList({
   todayDay,
   cardsByDay,
   goalsByDay,
+  reachedGoals,
   remindersByDay,
   gcalByDay,
   labelsById,
@@ -569,7 +591,7 @@ function AgendaList({
                   />
                 ))}
                 {dayGoals.map((goal) => (
-                  <GoalChip key={goal.id} goal={goal} />
+                  <GoalChip key={goal.id} goal={goal} done={reachedGoals.has(goal.id)} />
                 ))}
                 {dayCards.map((card) => (
                   <CardChip

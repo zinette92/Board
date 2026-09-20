@@ -21,6 +21,7 @@ import {
   dueTone,
   formatDay,
   formatFullDay,
+  today,
 } from '../../lib/dates'
 import { DatePicker } from '../../components/DatePicker'
 import { makeMilestone } from '../../lib/create'
@@ -422,6 +423,21 @@ function GoalRow({
   const missing = criteria.filter((criterion) => !criterion.filled)
   const linked = cards.filter((card) => card.goalId === goal.id)
   const tone = PACE_TONES[progress.pace]
+
+  /**
+   * Retard : l'échéance de l'objectif est passée, OU une étape datée traîne
+   * derrière. Les deux comptent — un objectif qui tient encore son échéance
+   * peut très bien avoir une étape d'il y a une semaine, et c'est le seul
+   * endroit où le voir puisque les étapes sont repliées.
+   */
+  const lateSteps = goal.steps.filter(
+    (step) => !step.done && step.dueOn !== null && step.dueOn < today(),
+  )
+  const late = progress.ratio < 1 && (progress.daysLeft < 0 || lateSteps.length > 0)
+  const lateReason =
+    progress.daysLeft < 0
+      ? `Échéance dépassée depuis ${days(-progress.daysLeft)}`
+      : `${lateSteps.length} étape${lateSteps.length > 1 ? 's' : ''} dépassée${lateSteps.length > 1 ? 's' : ''}`
   // La barre n'a pas de nuance « muted » : un objectif pas encore commencé
   // s'affiche dans la couleur d'accent, la pastille dira le reste.
   const barTone = tone === 'muted' ? 'accent' : tone
@@ -482,13 +498,11 @@ function GoalRow({
             >
               {GOAL_CATEGORY_LABELS[goal.category]}
             </Pill>
-            {/* Échéance passée sans que la cible soit atteinte : l'alerte
-                passe avant tout le reste. */}
-            {progress.daysLeft < 0 && progress.ratio < 1 ? (
-              <OverdueBadge
-                title={`Échéance dépassée depuis ${days(-progress.daysLeft)}`}
-                className="size-4.5 text-[11px]"
-              />
+            {/* L'alerte passe avant tout le reste — et suit exactement la
+                règle de l'onglet : sans cela, l'en-tête criait au retard sans
+                qu'aucune carte ne dise laquelle. */}
+            {late ? (
+              <OverdueBadge title={lateReason} className="size-4.5 text-[11px]" />
             ) : null}
             {goal.status === 'paused' ? <Pill tone="muted">en pause</Pill> : null}
             {goal.sourceGoalId ? <Pill tone="accent">↗ issu d'une étape</Pill> : null}
