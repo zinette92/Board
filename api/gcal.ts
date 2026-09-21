@@ -132,8 +132,40 @@ export default async function handler(req: Req, res: Res) {
       case 'status': {
         const response = await gcal('')
         if (response.status === 404 || response.status === 403) {
-          // L'agenda n'est pas (encore) partagé avec le compte de service.
-          res.status(200).json({ ok: false, state: 'not-shared', saEmail })
+          /*
+           * Échec d'accès. Sans en dire plus, le user n'a aucun moyen de
+           * savoir s'il s'est trompé d'identifiant ou si le partage n'a pas
+           * pris. On lui rend donc les trois pièces du puzzle : l'identifiant
+           * visé, le code de Google, et ce que le compte de service voit
+           * VRAIMENT — un agenda partagé arrive normalement dans sa liste,
+           * donc une liste vide dit que le partage n'a jamais abouti.
+           */
+          const token = await googleToken(saEmail!, saKey!)
+          const seen = await fetch(`${CAL_API}/users/me/calendarList`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          const items = seen.ok
+            ? ((
+                (await seen.json()) as {
+                  items?: Array<{ id: string; summary?: string; accessRole?: string }>
+                }
+              ).items ?? [])
+            : []
+          res.status(200).json({
+            ok: false,
+            state: 'not-shared',
+            saEmail,
+            calendarId,
+            httpStatus: response.status,
+            visible: items
+              // Son propre agenda, vide, ne renseigne sur rien.
+              .filter((item) => item.id !== saEmail)
+              .map((item) => ({
+                id: item.id,
+                summary: item.summary ?? item.id,
+                role: item.accessRole ?? '',
+              })),
+          })
           return
         }
         if (!response.ok) throw new Error(`Google répond ${response.status}`)

@@ -18,9 +18,20 @@ export type GcalEvent = {
   endTime: string | null
 }
 
+/** Un agenda que le compte de service atteint réellement. */
+export type GcalVisible = { id: string; summary: string; role: string }
+
 export type GcalStatus =
   | { state: 'ok'; summary: string }
-  | { state: 'not-shared'; saEmail: string }
+  | {
+      state: 'not-shared'
+      saEmail: string
+      /** Identifiant visé, tel que configuré sur Vercel. */
+      calendarId: string
+      /** 404 = introuvable pour ce compte ; 403 = vu, mais droits refusés. */
+      httpStatus: number
+      visible: GcalVisible[]
+    }
   | { state: 'unconfigured'; missing: string[]; saEmail: string | null }
   | { state: 'error'; message: string }
 
@@ -52,7 +63,15 @@ export async function gcalStatus(): Promise<GcalStatus> {
   try {
     const body = await call({ action: 'status' })
     if (body.state === 'ok') return { state: 'ok', summary: String(body.summary) }
-    if (body.state === 'not-shared') return { state: 'not-shared', saEmail: String(body.saEmail) }
+    if (body.state === 'not-shared') {
+      return {
+        state: 'not-shared',
+        saEmail: String(body.saEmail),
+        calendarId: String(body.calendarId ?? ''),
+        httpStatus: Number(body.httpStatus ?? 0),
+        visible: (body.visible as GcalVisible[]) ?? [],
+      }
+    }
     if (body.state === 'unconfigured') {
       return {
         state: 'unconfigured',

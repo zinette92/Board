@@ -400,14 +400,55 @@ function GoogleSection() {
       ) : status.state === 'not-shared' ? (
         <div className="flex flex-col gap-2 text-xs text-muted">
           <p>
-            Le pont fonctionne, mais l'agenda n'est pas encore partagé avec le compte de service.
-            Dans Google Agenda : Paramètres de l'agenda → « Partager avec des personnes » →
-            ajouter cette adresse avec le droit
-            <strong className="text-ink"> « Apporter des modifications aux événements »</strong> :
+            Le pont vers Google fonctionne — la clé est bonne — mais il n'atteint pas cet agenda
+            {status.httpStatus === 403
+              ? ' : Google le voit, mais refuse les droits (partage en lecture seule ?).'
+              : " : Google répond « introuvable pour ce compte », ce qui veut dire soit un identifiant qui ne correspond pas, soit un partage qui n'a pas pris."}
           </p>
-          <code className="rounded-lg bg-surface-2/70 p-2 break-all select-all">
-            {status.saEmail}
-          </code>
+
+          <div className="flex flex-col gap-1">
+            <span className="font-semibold text-ink">Identifiant visé (GOOGLE_CALENDAR_ID)</span>
+            <code className="rounded-lg bg-surface-2/70 p-2 break-all select-all">
+              {status.calendarId || '(vide)'}
+            </code>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <span className="font-semibold text-ink">Compte de service à autoriser</span>
+            <code className="rounded-lg bg-surface-2/70 p-2 break-all select-all">
+              {status.saEmail}
+            </code>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <span className="font-semibold text-ink">Agendas que ce compte atteint réellement</span>
+            {status.visible.length === 0 ? (
+              <p className="rounded-lg bg-surface-2/70 p-2">
+                Aucun. Le partage n'a donc jamais abouti : dans Google Agenda, ouvre les réglages
+                de l'agenda voulu, puis « Partager avec des personnes en particulier », et ajoute
+                l'adresse ci-dessus avec{' '}
+                <strong className="text-ink">
+                  « Apporter des modifications et gérer le partage »
+                </strong>
+                . Recharge ensuite cette page — compte une minute, Google met du temps à propager.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {status.visible.map((item) => (
+                  <li key={item.id} className="rounded-lg bg-surface-2/70 p-2">
+                    <strong className="text-ink">{item.summary}</strong> — {item.role}
+                    <br />
+                    <code className="break-all select-all">{item.id}</code>
+                  </li>
+                ))}
+                <li>
+                  Le partage a pris, mais sur un autre agenda que celui visé : recopie
+                  l'identifiant ci-dessus dans GOOGLE_CALENDAR_ID (Vercel, Settings puis
+                  Environment Variables), et redéploie.
+                </li>
+              </ul>
+            )}
+          </div>
         </div>
       ) : status.state === 'unconfigured' ? (
         <div className="flex flex-col gap-2 text-xs text-muted">
