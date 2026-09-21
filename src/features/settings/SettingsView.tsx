@@ -6,8 +6,8 @@ import { SignOutButton } from '../auth/AuthGate'
 import { WallpaperPicker } from '../board/BoardView'
 import { byPosition } from '../../lib/ordering'
 import { NotificationSwitch } from '../reminders/RemindersView'
-import { gcalStatus } from '../../lib/gcal'
-import type { GcalStatus } from '../../lib/gcal'
+import { gcalAddCalendar, gcalRemoveCalendar, gcalStatus } from '../../lib/gcal'
+import type { GcalCalendar, GcalStatus } from '../../lib/gcal'
 import { useInstallPrompt } from '../../lib/install'
 import { useStore } from '../../lib/state'
 import { LABEL_COLORS } from '../../lib/types'
@@ -369,6 +369,105 @@ function ShortcutsSection() {
 }
 
 /**
+ * Les agendas Google suivis. La liste vit dans la `calendarList` du compte de
+ * service : ajouter ici, c'est l'y inscrire, donc valable depuis tous les
+ * appareils sans table ni réglage local. L'agenda par défaut
+ * (GOOGLE_CALENDAR_ID) reçoit les créations et ne se retire pas d'ici.
+ */
+function CalendarList({ initial, saEmail }: { initial: GcalCalendar[]; saEmail: string }) {
+  const [calendars, setCalendars] = useState(initial)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const run = async (body: () => Promise<GcalCalendar[]>, clear = false) => {
+    setBusy(true)
+    setError(null)
+    try {
+      setCalendars(await body())
+      if (clear) setDraft('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 text-xs text-muted">
+      <p>
+        ✓ Connecté. Les événements de ces agendas apparaissent dans le calendrier, chacun à sa
+        couleur.
+      </p>
+
+      <ul className="flex flex-col gap-1.5">
+        {calendars.map((calendar) => (
+          <li key={calendar.id} className="flex items-center gap-2">
+            <span
+              aria-hidden
+              className="size-3 shrink-0 rounded-full border border-line"
+              style={calendar.color ? { backgroundColor: calendar.color } : undefined}
+            />
+            <span className="min-w-0 flex-1 truncate text-ink">
+              {calendar.summary}
+              {calendar.isDefault ? (
+                <span className="ml-1.5 text-muted">— par défaut, reçoit les créations</span>
+              ) : null}
+            </span>
+            {calendar.isDefault ? null : (
+              <ConfirmButton
+                confirmLabel="Retirer ?"
+                onConfirm={() => void run(() => gcalRemoveCalendar(calendar.id))}
+              >
+                Retirer
+              </ConfirmButton>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Ajouter un agenda" className="min-w-64 flex-1">
+          <TextInput
+            value={draft}
+            placeholder="identifiant…@group.calendar.google.com"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && draft.trim()) {
+                void run(() => gcalAddCalendar(draft), true)
+              }
+            }}
+          />
+        </Field>
+        <Button
+          variant="primary"
+          disabled={busy || draft.trim().length === 0}
+          onClick={() => void run(() => gcalAddCalendar(draft), true)}
+        >
+          {busy ? '…' : 'Ajouter'}
+        </Button>
+      </div>
+
+      {error ? <p className="text-danger">{error}</p> : null}
+
+      <div className="flex flex-col gap-1">
+        <p>
+          Deux conditions pour qu’un agenda soit accepté. D’abord le partager avec le compte de
+          service, avec le droit
+          <strong className="text-ink"> « Apporter des modifications aux événements »</strong> :
+        </p>
+        <code className="rounded-lg bg-surface-2/70 p-2 break-all select-all">{saEmail}</code>
+        <p>
+          Ensuite coller son identifiant ci-dessus. On le trouve dans Google Agenda, réglages de
+          l’agenda, section <strong className="text-ink">« Intégrer l’agenda »</strong> — ligne
+          « ID de l’agenda ».
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/**
  * État de la connexion Google Agenda. La configuration elle-même vit côté
  * serveur (variables d'environnement Vercel + partage de l'agenda avec le
  * compte de service) : cette section ne fait que la diagnostiquer et guider.
@@ -393,10 +492,7 @@ function GoogleSection() {
       {status === null ? (
         <p className="text-xs text-muted">Vérification de la connexion…</p>
       ) : status.state === 'ok' ? (
-        <p className="text-xs text-muted">
-          ✓ Connecté à <strong className="text-ink">« {status.summary} »</strong> — les événements
-          apparaissent dans le calendrier, et « ＋ Événement Google » écrit directement dedans.
-        </p>
+        <CalendarList initial={status.calendars} saEmail={status.saEmail} />
       ) : status.state === 'not-shared' ? (
         <div className="flex flex-col gap-2 text-xs text-muted">
           <p>

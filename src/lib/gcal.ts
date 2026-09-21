@@ -16,13 +16,27 @@ export type GcalEvent = {
   /** `HH:MM`, ou null pour un événement « journée entière ». */
   time: string | null
   endTime: string | null
+  /** Agenda d'origine : il faut le rappeler pour modifier ou supprimer. */
+  calendarId: string
+  calendarName: string
+  /** Couleur telle que Google l'affiche, pour s'y retrouver d'un coup d'œil. */
+  color: string | null
+}
+
+/** Un agenda suivi. La liste vit dans la `calendarList` du compte de service. */
+export type GcalCalendar = {
+  id: string
+  summary: string
+  color: string | null
+  /** L'agenda par défaut (GOOGLE_CALENDAR_ID) : jamais retirable. */
+  isDefault: boolean
 }
 
 /** Un agenda que le compte de service atteint réellement. */
 export type GcalVisible = { id: string; summary: string; role: string }
 
 export type GcalStatus =
-  | { state: 'ok'; summary: string }
+  | { state: 'ok'; summary: string; calendars: GcalCalendar[]; saEmail: string }
   | {
       state: 'not-shared'
       saEmail: string
@@ -40,6 +54,8 @@ export type GcalDraft = {
   day: string
   time: string | null
   durationMin: number
+  /** Agenda d'accueil ; vide = celui par défaut. */
+  calendarId?: string
 }
 
 async function call(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -62,7 +78,14 @@ async function call(payload: Record<string, unknown>): Promise<Record<string, un
 export async function gcalStatus(): Promise<GcalStatus> {
   try {
     const body = await call({ action: 'status' })
-    if (body.state === 'ok') return { state: 'ok', summary: String(body.summary) }
+    if (body.state === 'ok') {
+      return {
+        state: 'ok',
+        summary: String(body.summary),
+        calendars: (body.calendars as GcalCalendar[]) ?? [],
+        saEmail: String(body.saEmail ?? ''),
+      }
+    }
     if (body.state === 'not-shared') {
       return {
         state: 'not-shared',
@@ -85,11 +108,34 @@ export async function gcalStatus(): Promise<GcalStatus> {
   }
 }
 
-/** Événements entre deux jours inclus ; [] si le pont n'est pas configuré. */
-export async function gcalList(from: string, to: string): Promise<GcalEvent[]> {
+/**
+ * Événements de TOUS les agendas suivis, entre deux jours inclus — avec la
+ * liste des agendas, qui sert à colorier et à choisir une destination. Pont
+ * non configuré : tout est vide, le calendrier vit sans.
+ */
+export async function gcalList(
+  from: string,
+  to: string,
+): Promise<{ events: GcalEvent[]; calendars: GcalCalendar[] }> {
   const body = await call({ action: 'list', from, to })
-  if (body.ok !== true) return []
-  return (body.events as GcalEvent[]) ?? []
+  if (body.ok !== true) return { events: [], calendars: [] }
+  return {
+    events: (body.events as GcalEvent[]) ?? [],
+    calendars: (body.calendars as GcalCalendar[]) ?? [],
+  }
+}
+
+/** Inscrit un agenda partagé dans la liste suivie ; renvoie la liste à jour. */
+export async function gcalAddCalendar(calendarId: string): Promise<GcalCalendar[]> {
+  const body = await call({ action: 'addCalendar', calendarId })
+  if (body.ok !== true) throw new Error(String(body.error ?? 'Ajout refusé.'))
+  return (body.calendars as GcalCalendar[]) ?? []
+}
+
+export async function gcalRemoveCalendar(calendarId: string): Promise<GcalCalendar[]> {
+  const body = await call({ action: 'removeCalendar', calendarId })
+  if (body.ok !== true) throw new Error(String(body.error ?? 'Retrait refusé.'))
+  return (body.calendars as GcalCalendar[]) ?? []
 }
 
 export async function gcalCreate(draft: GcalDraft): Promise<void> {
@@ -102,7 +148,7 @@ export async function gcalUpdate(id: string, draft: GcalDraft): Promise<void> {
   if (body.ok !== true) throw new Error(String(body.error ?? 'Modification refusée.'))
 }
 
-export async function gcalDelete(id: string): Promise<void> {
-  const body = await call({ action: 'delete', id })
+export async function gcalDelete(id: string, calendarId?: string): Promise<void> {
+  const body = await call({ action: 'delete', id, calendarId })
   if (body.ok !== true) throw new Error(String(body.error ?? 'Suppression refusée.'))
 }

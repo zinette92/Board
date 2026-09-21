@@ -14,7 +14,7 @@ import {
 import { addDays, formatFullDay, parseDay, toDay, today } from '../../lib/dates'
 import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
 import { goalProgress } from '../../lib/goals'
-import type { GcalEvent } from '../../lib/gcal'
+import type { GcalCalendar, GcalEvent } from '../../lib/gcal'
 import { chipStyle } from '../../lib/palette'
 import { isValidated, occurrencesBetween } from '../../lib/reminders'
 import { useStore } from '../../lib/state'
@@ -78,6 +78,8 @@ export function CalendarView({
    * chaque écriture. Pont non configuré → liste vide, le calendrier vit sans.
    */
   const [gcalEvents, setGcalEvents] = useState<GcalEvent[]>([])
+  /** Agendas suivis : servent à colorier, et à choisir où écrire. */
+  const [calendars, setCalendars] = useState<GcalCalendar[]>([])
   const [gcalError, setGcalError] = useState(false)
   const [gcalVersion, setGcalVersion] = useState(0)
   const [editing, setEditing] = useState<GcalEvent | 'new' | null>(null)
@@ -111,9 +113,10 @@ export function CalendarView({
   useEffect(() => {
     let stale = false
     gcalList(range.from, range.to)
-      .then((events) => {
+      .then((result) => {
         if (stale) return
-        setGcalEvents(events)
+        setGcalEvents(result.events)
+        setCalendars(result.calendars)
         setGcalError(false)
       })
       .catch(() => {
@@ -309,12 +312,16 @@ export function CalendarView({
         <p className="text-xs text-muted">
           Tâches datées, échéances d'objectifs, 🔔 rappels (pré-avis en pointillés) et Ⓖ événements
           Google. Clique une tâche ou un événement pour l'ouvrir.
+          {calendars.length > 1
+            ? ` — ${calendars.length} agendas Google suivis : ${calendars.map((item) => item.summary).join(', ')}.`
+            : ''}
           {gcalError ? ' — Google Agenda injoignable (voir Réglages).' : ''}
         </p>
 
         {editing !== null ? (
           <GcalEventModal
             event={editing === 'new' ? null : editing}
+            calendars={calendars}
             onClose={() => setEditing(null)}
             onSaved={() => {
               setEditing(null)
@@ -354,8 +361,19 @@ function GcalChip({ event, onOpen }: { event: GcalEvent; onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
-      title={`Google Agenda — ${event.title}${event.time ? ` à ${event.time}` : ''}`}
+      title={`${event.calendarName} — ${event.title}${event.time ? ` à ${event.time}` : ''}`}
       className="truncate rounded border border-accent/50 px-1 py-0.5 text-left text-[11px] font-medium text-accent transition-colors hover:bg-accent/10"
+      // Couleur de l'agenda d'origine : avec plusieurs agendas, c'est le seul
+      // moyen de savoir d'où vient un événement sans le survoler.
+      style={
+        event.color
+          ? {
+              borderColor: event.color,
+              backgroundColor: `color-mix(in oklab, ${event.color} 16%, transparent)`,
+              color: 'var(--text)',
+            }
+          : undefined
+      }
     >
       Ⓖ {event.time ? `${event.time} ` : ''}
       {event.title}
@@ -553,8 +571,10 @@ type Slot = {
   tone: 'gcal' | 'reminder' | 'card'
   done: boolean
   overdue: boolean
-  /** Couleur d'étiquette, quand il y en a une. */
+  /** Couleur d'étiquette de rappel, quand il y en a une. */
   color?: string
+  /** Couleur de l'agenda Google d'origine, déjà en hexadécimal. */
+  gcalColor?: string | null
   onOpen?: () => void
 }
 
@@ -643,6 +663,7 @@ function TimeGrid({
             tone: 'gcal',
             done: false,
             overdue: false,
+            gcalColor: event.color,
             onOpen: () => onOpenEvent(event),
           })
         }
@@ -847,6 +868,10 @@ function TimeGrid({
                   style.backgroundColor = chip.backgroundColor
                   style.borderColor = chip.borderColor
                   style.color = chip.color
+                } else if (slot.gcalColor) {
+                  style.borderColor = slot.gcalColor
+                  style.backgroundColor = `color-mix(in oklab, ${slot.gcalColor} 18%, transparent)`
+                  style.color = 'var(--text)'
                 }
                 return (
                   <button
@@ -858,7 +883,10 @@ function TimeGrid({
                     className={cx(
                       'absolute flex flex-col items-stretch justify-start overflow-hidden rounded border px-1 py-0.5 text-left text-[10px] leading-tight',
                       slot.onOpen && 'cursor-pointer hover:brightness-95',
-                      !slot.color && slot.tone === 'gcal' && 'border-accent/50 bg-accent/15 text-ink',
+                      !slot.color &&
+                        !slot.gcalColor &&
+                        slot.tone === 'gcal' &&
+                        'border-accent/50 bg-accent/15 text-ink',
                       !slot.color &&
                         slot.tone === 'reminder' &&
                         'border-warn/50 bg-warn/15 text-ink',
@@ -923,10 +951,12 @@ function spanMinutes(start: string | null, end: string | null): number | null {
  */
 function GcalEventModal({
   event,
+  calendars,
   onClose,
   onSaved,
 }: {
   event: GcalEvent | null
+  calendars: GcalCalendar[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -939,12 +969,25 @@ function GcalEventModal({
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Agenda d'accueil. Un evenement existant garde le sien : Google ne sait pas
+   * deplacer un evenement d'un agenda a l'autre par une simple modification.
+   */
+  const [calendarId, setCalendarId] = useState(
+    () => event?.calendarId ?? calendars.find((item) => item.isDefault)?.id ?? '',
+  )
 
   const save = async () => {
     if (saving) return
     setSaving(true)
     setError(null)
-    const draft = { title: title.trim() || '(sans titre)', day, time, durationMin: duration }
+    const draft = {
+      title: title.trim() || '(sans titre)',
+      day,
+      time,
+      durationMin: duration,
+      calendarId,
+    }
     try {
       if (event) await gcalUpdate(event.id, draft)
       else await gcalCreate(draft)
@@ -960,7 +1003,7 @@ function GcalEventModal({
     setSaving(true)
     setError(null)
     try {
-      await gcalDelete(event.id)
+      await gcalDelete(event.id, event.calendarId)
       onSaved()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -988,6 +1031,30 @@ function GcalEventModal({
       }
     >
       <div className="flex flex-col gap-3">
+        {calendars.length > 1 ? (
+          <Field
+            label="Agenda"
+            hint={
+              event
+                ? 'Un evenement ne se deplace pas d’un agenda a l’autre.'
+                : undefined
+            }
+          >
+            <Select
+              value={calendarId}
+              disabled={event !== null}
+              onChange={(input) => setCalendarId(input.target.value)}
+            >
+              {calendars.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.summary}
+                  {item.isDefault ? ' (par defaut)' : ''}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
         <Field label="Titre">
           <TextInput
             autoFocus
