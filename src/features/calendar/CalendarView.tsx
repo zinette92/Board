@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 
 import { DatePicker } from '../../components/DatePicker'
 import {
@@ -6,12 +7,11 @@ import {
   ConfirmButton,
   Field,
   Modal,
-  Pill,
   Select,
   TextInput,
   cx,
 } from '../../components/ui'
-import { addDays, formatFullDay, toDay, today } from '../../lib/dates'
+import { addDays, formatFullDay, parseDay, toDay, today } from '../../lib/dates'
 import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
 import { goalProgress } from '../../lib/goals'
 import type { GcalEvent } from '../../lib/gcal'
@@ -23,21 +23,28 @@ import type { Board, Card, Goal, ID, Label, Reminder } from '../../lib/types'
 const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
 
 const monthFormatter = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' })
-const agendaDayFormatter = new Intl.DateTimeFormat('fr-FR', {
-  weekday: 'short',
-  day: 'numeric',
-  month: 'short',
-})
-
-type Mode = 'month' | 'agenda'
+type Mode = 'day' | 'week' | 'month'
 
 const MODE_KEY = 'perso-board:calendar-mode'
 
+/** Hauteur d'une heure dans les grilles horaires, en pixels. */
+const HOUR_PX = 44
+/** Première heure montrée à l'ouverture : la nuit n'intéresse personne. */
+const FIRST_VISIBLE_HOUR = 7
+
+const dayTitleFormatter = new Intl.DateTimeFormat('fr-FR', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+})
+
 /**
- * Vue des échéances : cartes datées + deadlines des objectifs actifs.
- * Deux présentations — la grille du mois, et l'agenda vertical continu qui se
- * parcourt en scrollant (seuls les jours occupés y figurent, aujourd'hui sert
- * de point d'ancrage).
+ * Vue des échéances : cartes datées, deadlines des objectifs, rappels et
+ * événements Google. Trois présentations, à la Google Agenda — le **jour** sur
+ * ses 24 heures, la **semaine** en sept colonnes horaires, et le **mois** en
+ * grille. Les flèches avancent d'un pas de la taille de la vue ; « Aujourd'hui »
+ * ramène au jour courant sans changer de vue.
  */
 export function CalendarView({
   onOpenCard,
@@ -47,12 +54,19 @@ export function CalendarView({
   hasWallpaper: boolean
 }) {
   const store = useStore()
-  const [mode, setMode] = useState<Mode>(() =>
-    localStorage.getItem(MODE_KEY) === 'agenda' ? 'agenda' : 'month',
-  )
+  const [mode, setMode] = useState<Mode>(() => {
+    const saved = localStorage.getItem(MODE_KEY)
+    // « agenda » a existé jusqu'au 21/09 : la semaine en prend la suite.
+    if (saved === 'agenda' || saved === 'week') return 'week'
+    return saved === 'day' ? 'day' : 'month'
+  })
+  /**
+   * Jour de référence — et non plus le 1er du mois : la même valeur sert aux
+   * trois vues (le jour lui-même, sa semaine, son mois).
+   */
   const [anchor, setAnchor] = useState(() => {
     const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), 1)
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate())
   })
 
   useEffect(() => {
@@ -68,13 +82,31 @@ export function CalendarView({
   const [gcalVersion, setGcalVersion] = useState(0)
   const [editing, setEditing] = useState<GcalEvent | 'new' | null>(null)
 
+  /** Les jours affichés, dans l'ordre : un seul, sept, ou rien (le mois). */
+  const shownDays = useMemo(() => {
+    const base = toDay(anchor)
+    if (mode === 'day') return [base]
+    if (mode === 'week') {
+      // Semaine à la française : on remonte au lundi.
+      const weekday = anchor.getDay()
+      const monday = addDays(base, weekday === 0 ? -6 : 1 - weekday)
+      return Array.from({ length: 7 }, (_, index) => addDays(monday, index))
+    }
+    return []
+  }, [mode, anchor])
+
   const range = useMemo(() => {
-    if (mode === 'agenda') return { from: addDays(today(), -30), to: addDays(today(), 120) }
+    if (shownDays.length > 0) {
+      return {
+        from: addDays(shownDays[0], -1),
+        to: addDays(shownDays[shownDays.length - 1], 1),
+      }
+    }
     const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
     const last = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)
     // La grille montre jusqu'à 6 jours des mois voisins.
     return { from: addDays(toDay(first), -7), to: addDays(toDay(last), 7) }
-  }, [mode, anchor])
+  }, [shownDays, anchor])
 
   useEffect(() => {
     let stale = false
@@ -173,6 +205,15 @@ export function CalendarView({
 
   const todayDay = today()
 
+  /** Un pas de navigation : un jour, une semaine, ou un mois. */
+  const step = (direction: number) => {
+    if (mode === 'month') {
+      setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + direction, 1))
+      return
+    }
+    setAnchor(new Date(parseDay(addDays(toDay(anchor), direction * (mode === 'week' ? 7 : 1)))))
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-6">
       <div
@@ -185,7 +226,11 @@ export function CalendarView({
       >
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="mr-auto text-lg font-semibold capitalize">
-            {mode === 'month' ? monthFormatter.format(anchor) : 'Agenda'}
+            {mode === 'day'
+              ? dayTitleFormatter.format(anchor)
+              : mode === 'week'
+                ? `${formatFullDay(shownDays[0])} — ${formatFullDay(shownDays[6])}`
+                : monthFormatter.format(anchor)}
           </h2>
 
           <Button size="sm" onClick={() => setEditing('new')}>
@@ -195,8 +240,9 @@ export function CalendarView({
           <div className="flex rounded-lg border border-line p-0.5">
             {(
               [
+                ['day', 'Jour'],
+                ['week', 'Semaine'],
                 ['month', 'Mois'],
-                ['agenda', 'Agenda'],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -213,33 +259,21 @@ export function CalendarView({
             ))}
           </div>
 
-          {mode === 'month' ? (
-            <>
-              <Button
-                size="sm"
-                onClick={() => setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1))}
-                aria-label="Mois précédent"
-              >
-                ‹
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  const now = new Date()
-                  setAnchor(new Date(now.getFullYear(), now.getMonth(), 1))
-                }}
-              >
-                Aujourd'hui
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1))}
-                aria-label="Mois suivant"
-              >
-                ›
-              </Button>
-            </>
-          ) : null}
+          <Button size="sm" onClick={() => step(-1)} aria-label="Période précédente">
+            ‹
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              const now = new Date()
+              setAnchor(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
+            }}
+          >
+            Aujourd'hui
+          </Button>
+          <Button size="sm" onClick={() => step(1)} aria-label="Période suivante">
+            ›
+          </Button>
         </div>
 
         {mode === 'month' ? (
@@ -257,7 +291,8 @@ export function CalendarView({
             onOpenEvent={setEditing}
           />
         ) : (
-          <AgendaList
+          <TimeGrid
+            days={shownDays}
             todayDay={todayDay}
             cardsByDay={cardsByDay}
             goalsByDay={goalsByDay}
@@ -497,9 +532,76 @@ function MonthGrid({
   )
 }
 
-/* --------------------------------------------------------- Agenda vertical */
+/* ------------------------------------------------------ Grilles horaires */
 
-function AgendaList({
+/** « HH:MM » en minutes depuis minuit ; null si illisible. */
+function minutesOf(time: string | null): number | null {
+  if (!time || time.length < 4) return null
+  const value = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))
+  return Number.isFinite(value) ? value : null
+}
+
+/** Une chose posée à une heure précise, dans la colonne d'un jour. */
+type Slot = {
+  key: string
+  label: string
+  title: string
+  /** Minutes depuis minuit. */
+  start: number
+  /** Durée réelle en minutes (l'affichage applique son propre plancher). */
+  minutes: number
+  tone: 'gcal' | 'reminder' | 'card'
+  done: boolean
+  overdue: boolean
+  /** Couleur d'étiquette, quand il y en a une. */
+  color?: string
+  onOpen?: () => void
+}
+
+/**
+ * Place les créneaux qui se chevauchent côte à côte, comme Google Agenda :
+ * chacun prend la première « voie » libre, et la largeur se partage entre les
+ * voies utilisées par son groupe de chevauchement.
+ */
+function withLanes(slots: Slot[]): Array<Slot & { lane: number; lanes: number }> {
+  const sorted = [...slots].sort((a, b) => a.start - b.start || a.minutes - b.minutes)
+  const out: Array<Slot & { lane: number; lanes: number }> = []
+  let group: Array<Slot & { lane: number; lanes: number }> = []
+  /** Fin de chaque voie du groupe courant. */
+  let ends: number[] = []
+
+  const closeGroup = () => {
+    for (const item of group) item.lanes = ends.length
+    out.push(...group)
+    group = []
+    ends = []
+  }
+
+  for (const slot of sorted) {
+    const span = Math.max(slot.minutes, 20)
+    // Plus aucun chevauchement avec le groupe : on le referme.
+    if (group.length > 0 && ends.every((end) => end <= slot.start)) closeGroup()
+    let lane = ends.findIndex((end) => end <= slot.start)
+    if (lane === -1) {
+      lane = ends.length
+      ends.push(slot.start + span)
+    } else {
+      ends[lane] = slot.start + span
+    }
+    group.push({ ...slot, lane, lanes: ends.length })
+  }
+  closeGroup()
+  return out
+}
+
+/**
+ * Grille horaire sur 24 heures : une colonne en vue Jour, sept en vue Semaine.
+ * Ce qui n'a pas d'heure (objectifs, cartes sans heure, événements « journée
+ * entière », pré-avis de rappel) vit dans le bandeau du haut — le corps de la
+ * grille ne montre que ce qui a vraiment une heure.
+ */
+function TimeGrid({
+  days,
   todayDay,
   cardsByDay,
   goalsByDay,
@@ -510,82 +612,159 @@ function AgendaList({
   boardsById,
   onOpenCard,
   onOpenEvent,
-}: ItemsProps) {
-  const todayRef = useRef<HTMLDivElement>(null)
+}: ItemsProps & { days: string[] }) {
+  const scroller = useRef<HTMLDivElement>(null)
 
-  // Seuls les jours occupés figurent dans l'agenda ; aujourd'hui y est
-  // toujours, occupé ou non — c'est le point d'ancrage du scroll.
-  //
-  // Fenêtre bornée : un rappel bihebdomadaire produit des centaines
-  // d'occurrences sur la plage calculée, ce qui rendrait l'agenda interminable.
-  // Un mois en arrière et quatre mois devant couvrent l'usage réel.
-  const days = useMemo(() => {
-    const from = addDays(todayDay, -30)
-    const to = addDays(todayDay, 120)
-    const set = new Set(
-      [
-        ...cardsByDay.keys(),
-        ...goalsByDay.keys(),
-        ...remindersByDay.keys(),
-        ...gcalByDay.keys(),
-      ].filter((day) => day >= from && day <= to),
-    )
-    set.add(todayDay)
-    return [...set].sort()
-  }, [cardsByDay, goalsByDay, remindersByDay, gcalByDay, todayDay])
-
+  // On ouvre sur le matin : minuit en haut d'écran ne sert à rien.
   useEffect(() => {
-    todayRef.current?.scrollIntoView({ block: 'center' })
-  }, [])
+    if (scroller.current) scroller.current.scrollTop = FIRST_VISIBLE_HOUR * HOUR_PX
+  }, [days.length])
 
-  let previousMonth = ''
+  /** Pour chaque jour : ce qui a une heure, et ce qui n'en a pas. */
+  const columns = useMemo(
+    () =>
+      days.map((day) => {
+        const timed: Slot[] = []
+        const allDay: Array<{ key: string; node: 'goal' | 'card' | 'gcal' | 'lead' }> = []
+
+        for (const event of gcalByDay.get(day) ?? []) {
+          const start = minutesOf(event.time)
+          if (start === null) {
+            allDay.push({ key: `g-${event.id}`, node: 'gcal' })
+            continue
+          }
+          const end = minutesOf(event.endTime)
+          timed.push({
+            key: `g-${event.id}`,
+            label: event.time ?? '',
+            title: event.title,
+            start,
+            minutes: end !== null && end > start ? end - start : 60,
+            tone: 'gcal',
+            done: false,
+            overdue: false,
+            onOpen: () => onOpenEvent(event),
+          })
+        }
+
+        for (const hit of remindersByDay.get(day) ?? []) {
+          // Un pré-avis n'est pas un rendez-vous : il monte dans le bandeau.
+          if (hit.lead) {
+            allDay.push({ key: `r-${hit.reminder.id}-lead`, node: 'lead' })
+            continue
+          }
+          const start = minutesOf(hit.reminder.at)
+          if (start === null) continue
+          const label = hit.reminder.labelIds.map((id) => labelsById.get(id)).find(Boolean)
+          timed.push({
+            key: `r-${hit.reminder.id}-${hit.target}`,
+            label: hit.reminder.at,
+            title: hit.reminder.title || 'Rappel',
+            start,
+            minutes: 30,
+            tone: 'reminder',
+            done: isValidated(hit.reminder, hit.target),
+            overdue: false,
+            color: label ? label.color : undefined,
+          })
+        }
+
+        for (const card of cardsByDay.get(day) ?? []) {
+          const start = minutesOf(card.dueTime)
+          if (start === null) {
+            allDay.push({ key: `c-${card.id}`, node: 'card' })
+            continue
+          }
+          timed.push({
+            key: `c-${card.id}`,
+            label: card.dueTime ?? '',
+            title: card.title,
+            start,
+            minutes: 30,
+            tone: 'card',
+            done: card.doneAt !== null,
+            overdue: card.doneAt === null && day < todayDay,
+            onOpen: () => onOpenCard(card.id),
+          })
+        }
+
+        for (const goal of goalsByDay.get(day) ?? []) {
+          allDay.push({ key: `o-${goal.id}`, node: 'goal' })
+        }
+
+        return { day, timed: withLanes(timed), allDay }
+      }),
+    [
+      days,
+      cardsByDay,
+      goalsByDay,
+      remindersByDay,
+      gcalByDay,
+      labelsById,
+      todayDay,
+      onOpenCard,
+      onOpenEvent,
+    ],
+  )
+
+  const hasAllDay = columns.some((column) => column.allDay.length > 0)
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes()
 
   return (
-    <div className="flex flex-col rounded-xl border border-line bg-surface px-3 py-2">
-      {days.map((day) => {
-        const isToday = day === todayDay
-        const month = day.slice(0, 7)
-        const showMonth = month !== previousMonth
-        previousMonth = month
-        const dayGoals = goalsByDay.get(day) ?? []
-        const dayCards = cardsByDay.get(day) ?? []
-        const dayReminders = remindersByDay.get(day) ?? []
-        const dayEvents = gcalByDay.get(day) ?? []
-        return (
-          <div key={day} ref={isToday ? todayRef : undefined}>
-            {showMonth ? (
-              <div className="mt-3 mb-1 text-xs font-semibold tracking-wide text-muted uppercase first:mt-1">
-                {monthFormatter.format(new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, 1))}
-              </div>
-            ) : null}
-            <div className="flex gap-3">
+    <div className="overflow-hidden rounded-xl border border-line bg-surface">
+      {/* En-tête des jours, aligné sur la gouttière des heures. */}
+      <div className="flex border-b border-line">
+        <div className="w-12 shrink-0 border-r border-line" />
+        {columns.map((column) => {
+          const date = parseDay(column.day)
+          return (
+            <div
+              key={column.day}
+              className={cx(
+                'min-w-0 flex-1 border-r border-line px-1 py-1.5 text-center last:border-r-0',
+                column.day === todayDay && 'bg-accent/10',
+              )}
+            >
+              <div className="text-[11px] text-muted">{WEEKDAYS[(date.getDay() + 6) % 7]}</div>
               <div
                 className={cx(
-                  'w-24 shrink-0 pt-1 text-right text-xs',
-                  isToday ? 'font-semibold text-accent' : 'text-muted',
+                  'text-sm font-semibold tabular-nums',
+                  column.day === todayDay && 'text-accent',
                 )}
               >
-                {agendaDayFormatter.format(
-                  new Date(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10))),
-                )}
-                {isToday ? (
-                  <Pill tone="accent" className="mt-1 ml-auto block w-fit">
-                    aujourd'hui
-                  </Pill>
-                ) : null}
+                {date.getDate()}
               </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {hasAllDay ? (
+        <div className="flex border-b border-line">
+          <div className="grid w-12 shrink-0 place-items-center border-r border-line text-[10px] leading-tight text-muted">
+            sans
+            <br />
+            heure
+          </div>
+          {columns.map((column) => {
+            const dayGoals = goalsByDay.get(column.day) ?? []
+            const dayCards = (cardsByDay.get(column.day) ?? []).filter((card) => !card.dueTime)
+            const dayEvents = (gcalByDay.get(column.day) ?? []).filter((event) => !event.time)
+            const leads = (remindersByDay.get(column.day) ?? []).filter((hit) => hit.lead)
+            return (
               <div
+                key={column.day}
                 className={cx(
-                  'flex min-w-0 flex-1 flex-col gap-1 border-l-2 pb-4 pl-3',
-                  isToday ? 'border-accent' : 'border-line',
+                  'flex min-w-0 flex-1 flex-col gap-1 border-r border-line p-1 last:border-r-0',
+                  column.day === todayDay && 'bg-accent/5',
                 )}
               >
                 {dayEvents.map((event) => (
                   <GcalChip key={event.id} event={event} onOpen={() => onOpenEvent(event)} />
                 ))}
-                {dayReminders.map((hit) => (
+                {leads.map((hit) => (
                   <ReminderChip
-                    key={`${hit.reminder.id}-${hit.target}-${hit.lead}`}
+                    key={`${hit.reminder.id}-lead`}
                     hit={hit}
                     labelsById={labelsById}
                   />
@@ -597,23 +776,121 @@ function AgendaList({
                   <CardChip
                     key={card.id}
                     card={card}
-                    day={day}
+                    day={column.day}
                     todayDay={todayDay}
                     boardsById={boardsById}
                     onOpen={() => onOpenCard(card.id)}
                   />
                 ))}
-                {dayGoals.length === 0 &&
-                dayCards.length === 0 &&
-                dayReminders.length === 0 &&
-                dayEvents.length === 0 ? (
-                  <span className="pt-1 text-xs text-muted">Rien de prévu.</span>
-                ) : null}
               </div>
-            </div>
+            )
+          })}
+        </div>
+      ) : null}
+
+      {/* Corps défilant : 24 heures, quelle que soit la vue. */}
+      <div ref={scroller} className="max-h-[62vh] overflow-y-auto">
+        <div className="flex" style={{ height: 24 * HOUR_PX }}>
+          {/* Gouttière des heures. */}
+          <div className="w-12 shrink-0 border-r border-line">
+            {Array.from({ length: 24 }, (_, hour) => (
+              <div
+                key={hour}
+                className="relative border-b border-line/60"
+                style={{ height: HOUR_PX }}
+              >
+                <span className="absolute -top-1.5 right-1 bg-surface px-0.5 text-[10px] text-muted tabular-nums">
+                  {hour === 0 ? '' : `${String(hour).padStart(2, '0')}:00`}
+                </span>
+              </div>
+            ))}
           </div>
-        )
-      })}
+
+          {columns.map((column) => (
+            <div
+              key={column.day}
+              className={cx(
+                'relative min-w-0 flex-1 border-r border-line last:border-r-0',
+                column.day === todayDay && 'bg-accent/5',
+              )}
+            >
+              {/* Lignes d'heures, purement décoratives. */}
+              {Array.from({ length: 24 }, (_, hour) => (
+                <div
+                  key={hour}
+                  aria-hidden
+                  className="border-b border-line/60"
+                  style={{ height: HOUR_PX }}
+                />
+              ))}
+
+              {/* Trait de l'heure courante, sur la colonne du jour seulement. */}
+              {column.day === todayDay ? (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-danger"
+                  style={{ top: (nowMinutes / 60) * HOUR_PX }}
+                />
+              ) : null}
+
+              {column.timed.map((slot) => {
+                const height = Math.max((Math.max(slot.minutes, 20) / 60) * HOUR_PX, 16)
+                const width = 100 / slot.lanes
+                const style: CSSProperties = {
+                  top: (slot.start / 60) * HOUR_PX,
+                  height,
+                  left: `calc(${slot.lane * width}% + 2px)`,
+                  width: `calc(${width}% - 4px)`,
+                }
+                if (slot.color) {
+                  const chip = chipStyle(slot.color)
+                  style.backgroundColor = chip.backgroundColor
+                  style.borderColor = chip.borderColor
+                  style.color = chip.color
+                }
+                return (
+                  <button
+                    key={slot.key}
+                    type="button"
+                    disabled={!slot.onOpen}
+                    onClick={slot.onOpen}
+                    title={`${slot.label} — ${slot.title}`}
+                    className={cx(
+                      'absolute flex flex-col items-stretch justify-start overflow-hidden rounded border px-1 py-0.5 text-left text-[10px] leading-tight',
+                      slot.onOpen && 'cursor-pointer hover:brightness-95',
+                      !slot.color && slot.tone === 'gcal' && 'border-accent/50 bg-accent/15 text-ink',
+                      !slot.color &&
+                        slot.tone === 'reminder' &&
+                        'border-warn/50 bg-warn/15 text-ink',
+                      !slot.color &&
+                        slot.tone === 'card' &&
+                        (slot.overdue
+                          ? 'border-danger/50 bg-danger/15 text-danger'
+                          : 'border-line bg-surface-2 text-ink'),
+                      slot.done && 'text-muted line-through opacity-60',
+                    )}
+                    style={style}
+                  >
+                    {/* Bloc court : une seule ligne tronquee, l'heure devant.
+                        Bloc long : l'heure au-dessus, le titre en dessous. */}
+                    {height >= HOUR_PX * 0.75 ? (
+                      <>
+                        <span className="block font-semibold tabular-nums">{slot.label}</span>
+                        <span className="block overflow-hidden">{slot.title}</span>
+                      </>
+                    ) : (
+                      <span className="block truncate">
+                        <span className="font-semibold tabular-nums">{slot.label}</span>{' '}
+                        {slot.title}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
