@@ -35,6 +35,7 @@ import {
 import { formatAmount, formatWithUnit } from '../../lib/goals'
 import { describeSchedule, makeSchedule } from '../../lib/models'
 import { AutomationFields } from '../automations/AutomationsView'
+import { setPlanPayload } from '../calendar/DayRail'
 import { byPosition } from '../../lib/ordering'
 import { chipStyle, listTintStyle } from '../../lib/palette'
 import { MAX_ATTACHMENT_BYTES, useStore } from '../../lib/state'
@@ -269,6 +270,15 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 </option>
               ))}
             </select>
+            {/* Poignee de planification : se glisse dans le rail d'agenda. */}
+            <span
+              draggable
+              onDragStart={(event) => setPlanPayload(event.dataTransfer, { title: card.title })}
+              title="Glisser vers l'agenda du jour pour donner une heure à cette carte"
+              className="inline-flex h-7 cursor-grab items-center gap-1 rounded-md border border-line px-1.5 text-xs text-muted transition-colors select-none hover:border-accent hover:text-ink active:cursor-grabbing"
+            >
+              ⠿ Planifier
+            </span>
             {card.archivedAt !== null ? <Pill tone="warn">archivée</Pill> : null}
             {done && card.doneAt ? (
               <span className="text-xs font-normal text-muted">
@@ -684,6 +694,9 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       }
                       setDraggingItem({ checklistId: checklist.id, itemId: item.id })
                       event.dataTransfer.effectAllowed = 'move'
+                      // La meme prise sert a deux choses : reordonner ici, ou
+                      // deposer dans le rail d'agenda pour lui donner une heure.
+                      setPlanPayload(event.dataTransfer, { title: item.text })
                     }}
                     onDragEnd={() => {
                       // Glissement abandonné (Échap, dépôt hors zone) :

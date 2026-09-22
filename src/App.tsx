@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { IconButton, OverdueBadge, Pill, cx } from './components/ui'
@@ -7,6 +7,7 @@ import { AutomationsView } from './features/automations/AutomationsView'
 import { BoardView } from './features/board/BoardView'
 import { CardDetail } from './features/board/CardDetail'
 import { CalendarView } from './features/calendar/CalendarView'
+import { DayRail } from './features/calendar/DayRail'
 import { GoalsView } from './features/goals/GoalsView'
 import { SearchBar } from './features/search/SearchBar'
 import { ErrorBanner, SettingsView } from './features/settings/SettingsView'
@@ -26,6 +27,14 @@ export function App() {
   const [view, setView] = useState<View>('board')
   const [boardId, setBoardId] = useState<ID | null>(null)
   const [openCardId, setOpenCardId] = useState<ID | null>(null)
+  /** Rail d'agenda à droite : ouvert ou non, retenu d'une session à l'autre. */
+  const [railOpen, setRailOpen] = useState(
+    () => localStorage.getItem('perso-board:day-rail') === 'on',
+  )
+
+  useEffect(() => {
+    localStorage.setItem('perso-board:day-rail', railOpen ? 'on' : 'off')
+  }, [railOpen])
 
   // Le jour courant, qui bascule tout seul à minuit : la pastille des rappels
   // et les notifications doivent rester justes dans une appli laissée ouverte.
@@ -148,6 +157,13 @@ export function App() {
             le change deux fois par an. */}
         <div className="ml-auto flex flex-wrap items-center gap-1">
           <IconButton
+            label={railOpen ? "Fermer l'agenda du jour" : 'Agenda du jour'}
+            onClick={() => setRailOpen(!railOpen)}
+            className={cx('text-base', railOpen && 'bg-surface-2 text-ink')}
+          >
+            🗓
+          </IconButton>
+          <IconButton
             label="Automatisations"
             onClick={() => setView('automations')}
             className={cx('text-base', view === 'automations' && 'bg-surface-2 text-ink')}
@@ -193,6 +209,8 @@ export function App() {
       {view === 'settings' ? <SettingsView theme={theme} setTheme={setTheme} /> : null}
 
       {openCardId ? <CardDetail cardId={openCardId} onClose={closeCard} /> : null}
+
+      {railOpen ? <DayRail onClose={() => setRailOpen(false)} /> : null}
     </div>
   )
 }

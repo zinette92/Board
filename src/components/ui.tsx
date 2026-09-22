@@ -313,6 +313,9 @@ export function Modal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/45 p-3 sm:p-6"
+      // Le rail de droite pose `--rail-space` : la fiche se decale pour rester
+      // entierement visible, et le rail reste atteignable pour y deposer.
+      style={{ paddingRight: 'var(--rail-space, 0px)' }}
       onMouseDown={(event) => {
         if (dismissible && event.target === event.currentTarget) onClose()
       }}
