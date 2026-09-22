@@ -694,9 +694,16 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       }
                       setDraggingItem({ checklistId: checklist.id, itemId: item.id })
                       event.dataTransfer.effectAllowed = 'move'
-                      // La meme prise sert a deux choses : reordonner ici, ou
-                      // deposer dans le rail d'agenda pour lui donner une heure.
-                      setPlanPayload(event.dataTransfer, { title: item.text })
+                      // La même prise sert à deux choses : réordonner ici, ou
+                      // déposer dans le rail d'agenda pour lui donner une heure.
+                      // Le créneau porte alors « Carte : tâche » — sorti de la
+                      // fiche, le seul libellé de la tâche ne dirait plus à
+                      // quoi il se rattache.
+                      setPlanPayload(event.dataTransfer, {
+                        title: card.title.trim()
+                          ? `${card.title.trim()} : ${item.text}`
+                          : item.text,
+                      })
                     }}
                     onDragEnd={() => {
                       // Glissement abandonné (Échap, dépôt hors zone) :
