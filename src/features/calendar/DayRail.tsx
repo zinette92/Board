@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 
 import { Button, IconButton, Select, cx } from '../../components/ui'
-import { addDays, formatFullDay, today } from '../../lib/dates'
-import { gcalCreate, gcalList, gcalUpdate } from '../../lib/gcal'
+import { addDays, formatFullDay, parseDay, today } from '../../lib/dates'
+import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
 import type { GcalCalendar, GcalEvent } from '../../lib/gcal'
 import { HOUR_PX, hhmm, minutesOf, snap, withLanes } from '../../lib/timegrid'
 
@@ -47,6 +47,8 @@ export function DayRail({ onClose }: { onClose: () => void }) {
   /** Heure survolée pendant un glissement, pour montrer où ça tombera. */
   const [ghost, setGhost] = useState<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
+  /** Clic droit sur un bloc : supprimer, ou reporter a un autre jour. */
+  const [menu, setMenu] = useState<{ event: GcalEvent; x: number; y: number } | null>(null)
 
   const grid = useRef<HTMLDivElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -126,6 +128,9 @@ export function DayRail({ onClose }: { onClose: () => void }) {
   ) => {
     const start = minutesOf(event.time)
     if (start === null) return
+    // Bouton principal seulement : un clic droit ouvre le menu, il n'amorce pas
+    // un glissement.
+    if (pointer.button !== 0) return
     pointer.preventDefault()
     pointer.stopPropagation()
     const end = minutesOf(event.endTime)
@@ -190,6 +195,47 @@ export function DayRail({ onClose }: { onClose: () => void }) {
     } finally {
       setBusy(false)
     }
+  }
+
+  /** Supprime le creneau dans Google. */
+  const remove = async (event: GcalEvent) => {
+    setMenu(null)
+    setBusy(true)
+    setError(null)
+    try {
+      await gcalDelete(event.id, event.calendarId)
+      await reload()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Reporte le creneau a un autre jour, meme heure et meme duree. */
+  const postpone = async (event: GcalEvent, to: string) => {
+    setMenu(null)
+    const start = minutesOf(event.time)
+    if (start === null) return
+    const end = minutesOf(event.endTime)
+    setBusy(true)
+    setError(null)
+    try {
+      await gcalUpdate(event.id, {
+        title: event.title,
+        day: to,
+        time: event.time!,
+        durationMin: end !== null && end > start ? end - start : 60,
+        calendarId: event.calendarId,
+      })
+      // On suit le creneau : sans cela il disparaitrait sans explication.
+      setDay(to)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      setBusy(false)
+      return
+    }
+    setBusy(false)
   }
 
   /* --------------------------------------------------------- dépôt ------- */
@@ -370,18 +416,36 @@ export function DayRail({ onClose }: { onClose: () => void }) {
                 key={slot.event.id}
                 title={`${slot.event.calendarName} — ${slot.event.title}`}
                 onPointerDown={(pointer) => startDrag(pointer, slot.event, 'move')}
+                onContextMenu={(pointer) => {
+                  pointer.preventDefault()
+                  setMenu({ event: slot.event, x: pointer.clientX, y: pointer.clientY })
+                }}
                 className={cx(
-                  'absolute flex cursor-grab flex-col overflow-hidden rounded border px-1 py-0.5 text-left text-[10px] leading-tight select-none',
+                  'absolute flex cursor-grab flex-col justify-start overflow-hidden rounded border px-1 py-0.5 text-left text-[10px] leading-tight select-none',
                   !slot.event.color && 'border-accent/50 bg-accent/15',
                   live && 'z-30 cursor-grabbing shadow-lg ring-2 ring-accent',
                 )}
                 style={style}
               >
-                <span className="font-semibold tabular-nums">
-                  {hhmm(start)}
-                  {live ? ` – ${hhmm(start + minutes)}` : ''}
-                </span>
-                <span className="overflow-hidden">{slot.event.title}</span>
+                {/* Un quart d'heure ne tient pas sur deux lignes : l'heure et le
+                    titre s'alignent alors sur la meme, cale sur le trait. */}
+                {style.height !== undefined && Number(style.height) >= 34 ? (
+                  <>
+                    <span className="font-semibold tabular-nums">
+                      {hhmm(start)}
+                      {live ? ` – ${hhmm(start + minutes)}` : ''}
+                    </span>
+                    <span className="overflow-hidden">{slot.event.title}</span>
+                  </>
+                ) : (
+                  <span className="truncate">
+                    <span className="font-semibold tabular-nums">
+                      {hhmm(start)}
+                      {live ? ` – ${hhmm(start + minutes)}` : ''}
+                    </span>{' '}
+                    {slot.event.title}
+                  </span>
+                )}
                 {/* Poignée d'étirement : toute la largeur du bord bas. */}
                 <span
                   aria-hidden
@@ -393,9 +457,161 @@ export function DayRail({ onClose }: { onClose: () => void }) {
           })}
         </div>
       </div>
+
+      {menu ? (
+        <BlockMenu
+          event={menu.event}
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          onDelete={() => void remove(menu.event)}
+          onPostpone={(to) => void postpone(menu.event, to)}
+        />
+      ) : null}
     </aside>
   )
 }
 
 /** Durée plancher d'un créneau étiré : un quart d'heure. */
 const SNAP_FLOOR = 15
+
+const WEEKDAYS = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.']
+
+/**
+ * Menu du clic droit sur un créneau : le supprimer, ou le reporter.
+ *
+ * Reporter ouvre une semaine à même le menu — choisir un jour dans une liste
+ * déroulante obligerait à compter les dates de tête, là où une semaine se lit
+ * d'un coup d'œil. La hauteur du menu change donc du simple au double : sa
+ * position est mesurée après rendu, jamais supposée.
+ */
+function BlockMenu({
+  event,
+  x,
+  y,
+  onClose,
+  onDelete,
+  onPostpone,
+}: {
+  event: GcalEvent
+  x: number
+  y: number
+  onClose: () => void
+  onDelete: () => void
+  onPostpone: (day: string) => void
+}) {
+  const [postponing, setPostponing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  /** Semaine montrée, en nombre de semaines depuis celle du créneau. */
+  const [weekOffset, setWeekOffset] = useState(0)
+
+  const box = useRef<HTMLDivElement>(null)
+  const [place, setPlace] = useState<CSSProperties>({ left: x, top: y, visibility: 'hidden' })
+
+  useLayoutEffect(() => {
+    const rect = box.current?.getBoundingClientRect()
+    if (!rect) return
+    setPlace({
+      left: Math.max(8, Math.min(x, globalThis.innerWidth - rect.width - 8)),
+      top: Math.max(8, Math.min(y, globalThis.innerHeight - rect.height - 8)),
+    })
+  }, [x, y, postponing])
+
+  useEffect(() => {
+    const onKey = (key: KeyboardEvent) => {
+      if (key.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // Semaine à la française : on remonte au lundi.
+  const weekday = parseDay(event.day).getDay()
+  const monday = addDays(event.day, (weekday === 0 ? -6 : 1 - weekday) + weekOffset * 7)
+  const days = Array.from({ length: 7 }, (_, index) => addDays(monday, index))
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-[70]"
+        onMouseDown={onClose}
+        onContextMenu={(pointer) => {
+          pointer.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        ref={box}
+        className="fixed z-[71] flex w-60 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl"
+        style={place}
+      >
+        <span className="truncate px-1 pb-1 text-[11px] text-muted">{event.title}</span>
+
+        {postponing ? (
+          <>
+            <div className="flex items-center gap-1 px-1">
+              <IconButton label="Semaine précédente" onClick={() => setWeekOffset(weekOffset - 1)}>
+                ‹
+              </IconButton>
+              <span className="flex-1 text-center text-[11px] text-muted">
+                {weekOffset === 0 ? 'Cette semaine' : `${formatFullDay(monday)}`}
+              </span>
+              <IconButton label="Semaine suivante" onClick={() => setWeekOffset(weekOffset + 1)}>
+                ›
+              </IconButton>
+            </div>
+            <div className="grid grid-cols-7 gap-0.5">
+              {days.map((candidate) => {
+                const date = parseDay(candidate)
+                const current = candidate === event.day
+                return (
+                  <button
+                    key={candidate}
+                    type="button"
+                    title={formatFullDay(candidate)}
+                    disabled={current}
+                    onClick={() => onPostpone(candidate)}
+                    className={cx(
+                      'flex flex-col items-center rounded-md py-1 text-[10px] transition-colors',
+                      current
+                        ? 'bg-accent/15 text-accent'
+                        : 'text-muted hover:bg-surface-2 hover:text-ink',
+                    )}
+                  >
+                    <span>{WEEKDAYS[(date.getDay() + 6) % 7]}</span>
+                    <span className="text-xs font-semibold tabular-nums">{date.getDate()}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <Button size="sm" variant="ghost" className="justify-start" onClick={() => setPostponing(false)}>
+              ‹ Retour
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="justify-start"
+              onClick={() => setPostponing(true)}
+            >
+              ↷ Reporter…
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={cx('justify-start', confirmDelete && 'text-danger')}
+              onClick={() => {
+                if (confirmDelete) onDelete()
+                else setConfirmDelete(true)
+              }}
+            >
+              🗑 {confirmDelete ? 'Supprimer de Google ?' : 'Supprimer'}
+            </Button>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
