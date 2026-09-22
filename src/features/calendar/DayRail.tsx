@@ -56,7 +56,9 @@ export function DayRail({ onClose }: { onClose: () => void }) {
   const reload = useCallback(async () => {
     try {
       const result = await gcalList(day, day)
-      setEvents(result.events)
+      // La fenêtre demandée déborde sur les jours voisins (marges de fuseau) :
+      // on ne garde que le jour affiché.
+      setEvents(result.events.filter((event) => event.day === day))
       setCalendars(result.calendars)
       setTarget((current) =>
         result.calendars.some((item) => item.id === current)

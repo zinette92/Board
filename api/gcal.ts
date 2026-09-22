@@ -272,10 +272,17 @@ export default async function handler(req: Req, res: Res) {
         const { from, to } = input as { from: string; to: string }
         const calendars = await subscribed()
         const params = new URLSearchParams({
-          // Marges couvrant tous les fuseaux : le client n'affiche de toute
-          // façon que les jours de sa fenêtre.
-          timeMin: `${from}T00:00:00-12:00`,
-          timeMax: `${to}T23:59:59+14:00`,
+          /*
+           * Marges couvrant tous les fuseaux. Le SENS des décalages compte :
+           * `00:00+14:00` est l'instant le plus TÔT où `from` commence quelque
+           * part sur Terre, `23:59-12:00` le plus TARD où `to` s'achève.
+           * Inversés, ils donnaient une fenêtre qui se terminait AVANT de
+           * commencer : sans effet sur un mois entier (les 7 jours de marge
+           * absorbaient l'erreur), mais une journée seule ne renvoyait
+           * jamais rien. Le client filtre ensuite sur le jour voulu.
+           */
+          timeMin: `${from}T00:00:00+14:00`,
+          timeMax: `${to}T23:59:59-12:00`,
           singleEvents: 'true',
           orderBy: 'startTime',
           maxResults: '250',
