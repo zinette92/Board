@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { App } from './App'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './features/auth/AuthGate'
 import { StoreProvider } from './lib/state'
 import { isConfigured } from './lib/supabase'
@@ -40,16 +41,26 @@ function MissingConfig() {
   )
 }
 
+// Le démarrage a abouti : le filet de secours d'`index.html` peut se réarmer
+// pour une prochaine fois.
+try {
+  sessionStorage.removeItem('perso-board:auto-recovery')
+} catch {
+  /* Mode privé, stockage refusé : sans importance. */
+}
+
 createRoot(host).render(
   <StrictMode>
-    {isConfigured ? (
-      <AuthGate>
-        <StoreProvider>
-          <App />
-        </StoreProvider>
-      </AuthGate>
-    ) : (
-      <MissingConfig />
-    )}
+    <ErrorBoundary>
+      {isConfigured ? (
+        <AuthGate>
+          <StoreProvider>
+            <App />
+          </StoreProvider>
+        </AuthGate>
+      ) : (
+        <MissingConfig />
+      )}
+    </ErrorBoundary>
   </StrictMode>,
 )

@@ -38,7 +38,21 @@ export default defineConfig({
         // Précache du bundle seulement : les appels Supabase restent réseau
         // pur — aucune donnée n'est mise en cache par le service worker.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        navigateFallback: '/index.html',
+        /*
+         * PAS de `navigateFallback`. Il servait l'`index.html` PRÉCACHÉ à chaque
+         * ouverture : après un déploiement, cette vieille page réclamait un
+         * bundle haché que Vercel ne sert plus (404) — écran blanc, d'autant
+         * plus probable qu'on déploie souvent. Les navigations passent donc
+         * par le réseau et reçoivent toujours la page courante. On y perd le
+         * démarrage hors ligne, qui n'a de toute façon aucun sens ici : sans
+         * réseau, ni Supabase ni Google ne répondent.
+         *
+         * Retirer la clé ne suffit pas : vite-plugin-pwa réimpose
+         * `navigateFallback: 'index.html'` par défaut. On neutralise donc la
+         * route par une liste d'exclusion qui attrape TOUT.
+         */
+        navigateFallbackDenylist: [/./],
+        cleanupOutdatedCaches: true,
       },
     }),
   ],

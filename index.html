@@ -12,6 +12,53 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Filet de secours, volontairement HORS du bundle : si le script principal
+      ne se charge pas — un service worker périmé réclamant un fichier qu'un
+      déploiement a remplacé — rien dans l'application ne peut plus s'exécuter
+      pour réparer quoi que ce soit. Ce bout de code vide alors les caches,
+      désinscrit le service worker et recharge. Une seule fois par onglet, pour
+      ne jamais boucler.
+    -->
+    <script>
+      ;(function () {
+        var KEY = 'perso-board:auto-recovery'
+        function recover() {
+          try {
+            if (sessionStorage.getItem(KEY)) return
+            sessionStorage.setItem(KEY, '1')
+          } catch (ignored) {
+            return
+          }
+          var jobs = []
+          if (window.caches) {
+            jobs.push(
+              caches.keys().then(function (names) {
+                return Promise.all(names.map(function (name) { return caches.delete(name) }))
+              }),
+            )
+          }
+          if (navigator.serviceWorker) {
+            jobs.push(
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (reg) { return reg.unregister() }))
+              }),
+            )
+          }
+          var reload = function () { location.reload() }
+          Promise.all(jobs).then(reload, reload)
+        }
+        // Phase de capture : une erreur de chargement de ressource ne remonte pas.
+        window.addEventListener(
+          'error',
+          function (event) {
+            var target = event.target
+            if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')) recover()
+          },
+          true,
+        )
+      })()
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
