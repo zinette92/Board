@@ -32,6 +32,11 @@ import { byPosition } from '../../lib/ordering'
 import { isDockList } from '../../lib/dock'
 import { useStore } from '../../lib/state'
 import type { Board, Card, ID, Label } from '../../lib/types'
+import {
+  PLAN_DROP_EVENT,
+  PLAN_HOVER_EVENT,
+  RAIL_GRID_ATTR,
+} from '../calendar/DayRail'
 import { BoardDock } from './BoardDock'
 import { CardFace } from './CardTile'
 import { ListColumn } from './ListColumn'
@@ -83,6 +88,14 @@ const collisionForBoard: CollisionDetection = (args) => {
   return closestCorners(args)
 }
 
+/** Le point (x, y) est-il au-dessus de la grille du rail d'agenda ? */
+function overRail(x: number, y: number): boolean {
+  const grid = document.querySelector(`[${RAIL_GRID_ATTR}]`)
+  if (!grid) return false
+  const box = grid.getBoundingClientRect()
+  return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom
+}
+
 export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id: ID) => void }) {
   const store = useStore()
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null)
@@ -123,9 +136,19 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
    * reste juste après un défilement (coordonnées viewport des deux côtés).
    */
   const mouse = useRef({ x: -1, y: -1 })
+  /** Titre de la carte en cours de glissement, ou null : lu par les écouteurs. */
+  const draggedTitle = useRef<string | null>(null)
+
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
       mouse.current = { x: event.clientX, y: event.clientY }
+      // Une carte traîne au-dessus du rail : il faut qu'il montre l'heure visée.
+      if (draggedTitle.current === null) return
+      globalThis.dispatchEvent(
+        new CustomEvent(PLAN_HOVER_EVENT, {
+          detail: { clientY: overRail(event.clientX, event.clientY) ? event.clientY : null },
+        }),
+      )
     }
 
     const onKey = (event: KeyboardEvent) => {
@@ -216,7 +239,9 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
 
   const onDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id)
-    if (event.active.data.current?.type === 'card') setDragArrangement(baseArrangement)
+    if (event.active.data.current?.type !== 'card') return
+    setDragArrangement(baseArrangement)
+    draggedTitle.current = cardsById.get(String(event.active.id))?.title ?? ''
   }
 
   const onDragOver = (event: DragOverEvent) => {
@@ -262,6 +287,23 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     setActiveId(null)
     // Le geste est fini : une liste dépliée pour l'occasion se referme.
     setPeeked(null)
+    const title = draggedTitle.current
+    draggedTitle.current = null
+    globalThis.dispatchEvent(new CustomEvent(PLAN_HOVER_EVENT, { detail: { clientY: null } }))
+
+    /*
+     * Lâchée sur le rail d'agenda : la carte ne change pas de liste, elle se
+     * pose dans la journée. Le test est géométrique et non par `over` — le
+     * rail n'appartient pas au DndContext du tableau, il vit au-dessus de
+     * toute l'application.
+     */
+    if (title !== null && overRail(mouse.current.x, mouse.current.y)) {
+      setDragArrangement(null)
+      globalThis.dispatchEvent(
+        new CustomEvent(PLAN_DROP_EVENT, { detail: { clientY: mouse.current.y, title } }),
+      )
+      return
+    }
 
     if (active.data.current?.type === 'list') {
       setDragArrangement(null)

@@ -263,7 +263,6 @@ export function CardTile({
         card={card}
         labels={labels}
         goal={goal}
-        planTitle={card.title}
         onToggleDone={onToggleDone}
         onToggleWaiting={() => void store.updateCard(card.id, { waiting: false })}
       />

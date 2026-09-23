@@ -14,6 +14,18 @@ import { HOUR_PX, hhmm, minutesOf, snap, withLanes } from '../../lib/timegrid'
  */
 export const PLAN_MIME = 'application/x-perso-board-plan'
 
+/**
+ * Le tableau ne peut pas parler au rail par un glisser-déposer natif : ses
+ * cartes appartiennent à dnd-kit, qui travaille au pointeur. Il annonce donc
+ * par ces deux événements où en est son geste, et le rail y répond comme à un
+ * survol puis un dépôt. Aucun des deux n'a besoin de connaître l'autre.
+ */
+export const PLAN_HOVER_EVENT = 'perso-board:plan-hover'
+export const PLAN_DROP_EVENT = 'perso-board:plan-drop'
+
+/** Marque la grille du rail : le tableau la retrouve pour se situer. */
+export const RAIL_GRID_ATTR = 'data-day-rail-grid'
+
 export type PlanPayload = { title: string }
 
 /** Prépare un glissement vers le rail, depuis n'importe quel élément. */
@@ -90,6 +102,28 @@ export function DayRail({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 7 * HOUR_PX
   }, [])
+
+  /*
+   * Une carte du tableau survole ou atterrit : dnd-kit ne passant pas par le
+   * glisser natif, c'est le tableau qui nous prévient.
+   */
+  useEffect(() => {
+    const onHover = (event: Event) => {
+      const detail = (event as CustomEvent<{ clientY: number | null }>).detail
+      setGhost(detail.clientY === null ? null : minutesAt(detail.clientY))
+    }
+    const onPlanDrop = (event: Event) => {
+      const detail = (event as CustomEvent<{ clientY: number; title: string }>).detail
+      setGhost(null)
+      void onDrop(detail.clientY, JSON.stringify({ title: detail.title }))
+    }
+    globalThis.addEventListener(PLAN_HOVER_EVENT, onHover)
+    globalThis.addEventListener(PLAN_DROP_EVENT, onPlanDrop)
+    return () => {
+      globalThis.removeEventListener(PLAN_HOVER_EVENT, onHover)
+      globalThis.removeEventListener(PLAN_DROP_EVENT, onPlanDrop)
+    }
+  })
 
   /** Minutes depuis minuit correspondant à une position verticale de souris. */
   const minutesAt = (clientY: number): number => {
@@ -342,6 +376,7 @@ export function DayRail({ onClose }: { onClose: () => void }) {
       <div ref={scroller} className={cx('min-h-0 flex-1 overflow-y-auto', busy && 'opacity-60')}>
         <div
           ref={grid}
+          {...{ [RAIL_GRID_ATTR]: '' }}
           className="relative"
           style={{ height: 24 * HOUR_PX }}
           onDragOver={(event) => {
