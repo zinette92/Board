@@ -694,16 +694,6 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       }
                       setDraggingItem({ checklistId: checklist.id, itemId: item.id })
                       event.dataTransfer.effectAllowed = 'move'
-                      // La même prise sert à deux choses : réordonner ici, ou
-                      // déposer dans le rail d'agenda pour lui donner une heure.
-                      // Le créneau porte alors « Carte : tâche » — sorti de la
-                      // fiche, le seul libellé de la tâche ne dirait plus à
-                      // quoi il se rattache.
-                      setPlanPayload(event.dataTransfer, {
-                        title: card.title.trim()
-                          ? `${card.title.trim()} : ${item.text}`
-                          : item.text,
-                      })
                     }}
                     onDragEnd={() => {
                       // Glissement abandonné (Échap, dépôt hors zone) :
@@ -745,6 +735,29 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                         })
                       }
                     />
+                    {/*
+                     * Planifier cette tâche. Poignée SÉPARÉE, et non le même
+                     * `dragstart` que la ligne : mêlés, les deux gestes se
+                     * gênaient et le réordonnancement ne prenait plus. Elle
+                     * coupe la propagation, la ligne ne se croit donc jamais
+                     * en cours de déplacement.
+                     */}
+                    <span
+                      draggable
+                      title="Glisser vers l'agenda du jour pour donner une heure à cette tâche"
+                      aria-label="Planifier cette tâche"
+                      onDragStart={(event) => {
+                        event.stopPropagation()
+                        setPlanPayload(event.dataTransfer, {
+                          title: card.title.trim()
+                            ? `${card.title.trim()} : ${item.text}`
+                            : item.text,
+                        })
+                      }}
+                      className="shrink-0 cursor-grab text-[11px] leading-none text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent active:cursor-grabbing"
+                    >
+                      ⠿
+                    </span>
                     <InlineEdit
                       value={item.text}
                       onSubmit={(text) =>
