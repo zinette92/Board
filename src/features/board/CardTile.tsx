@@ -6,6 +6,7 @@ import { Pill, cx } from '../../components/ui'
 import { dueTone, formatDue } from '../../lib/dates'
 import { formatAmount } from '../../lib/goals'
 import { chipStyle } from '../../lib/palette'
+import { setPlanPayload } from '../calendar/DayRail'
 import { useStore } from '../../lib/state'
 import type { Card, Goal, Label } from '../../lib/types'
 
@@ -28,6 +29,7 @@ export function CardFace({
   dragging,
   onToggleDone,
   onToggleWaiting,
+  planTitle,
 }: {
   card: Card
   labels: Label[]
@@ -37,6 +39,11 @@ export function CardFace({
   onToggleDone?: () => void
   /** Absent (aperçu de drag) : le sablier est décoratif. */
   onToggleWaiting?: () => void
+  /**
+   * Présent : une poignée apparaît au survol, pour glisser la carte dans le
+   * rail d'agenda. Absente de l'aperçu de glissement, qui n'est qu'une image.
+   */
+  planTitle?: string
 }) {
   const items = card.checklists.flatMap((checklist) => checklist.items)
   const checked = items.filter((item) => item.done).length
@@ -46,28 +53,54 @@ export function CardFace({
   return (
     <article
       className={cx(
-        'relative rounded-lg border border-line bg-surface px-2.5 py-2 text-left shadow-sm transition-colors',
+        'group relative rounded-lg border border-line bg-surface px-2.5 py-2 text-left shadow-sm transition-colors',
         // Réserve la place du sablier pour que les étiquettes ne passent pas dessous.
         card.waiting && 'pr-7',
         dragging ? 'rotate-1 shadow-lg' : 'hover:border-accent/50',
       )}
     >
-      {/* Attente posée à la main par le user — un clic la retire. */}
-      {card.waiting ? (
-        <button
-          type="button"
-          disabled={!onToggleWaiting}
-          title={onToggleWaiting ? 'En attente — cliquer pour retirer' : 'En attente'}
-          aria-label="Retirer de l'attente"
-          className="absolute top-1.5 right-1.5 rounded text-xs leading-none transition-opacity hover:opacity-50 disabled:hover:opacity-100"
-          onClick={(event) => {
-            event.stopPropagation()
-            onToggleWaiting?.()
-          }}
-        >
-          ⏳
-        </button>
-      ) : null}
+      <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+        {/*
+         * Poignée de planification. Elle coupe la propagation de `mousedown` :
+         * c'est ce qui empêche dnd-kit d'amorcer un déplacement de carte sur le
+         * tableau, et laisse le glisser-déposer natif — le seul que le rail
+         * comprenne — se mettre en route.
+         */}
+        {planTitle !== undefined ? (
+          <span
+            draggable
+            title="Glisser vers l'agenda du jour pour donner une heure à cette carte"
+            aria-label="Planifier cette carte"
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            onDragStart={(event) => {
+              event.stopPropagation()
+              setPlanPayload(event.dataTransfer, { title: planTitle })
+            }}
+            className="cursor-grab text-[11px] leading-none text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent active:cursor-grabbing"
+          >
+            ⢿
+          </span>
+        ) : null}
+
+        {/* Attente posée à la main par le user — un clic la retire. */}
+        {card.waiting ? (
+          <button
+            type="button"
+            disabled={!onToggleWaiting}
+            title={onToggleWaiting ? 'En attente — cliquer pour retirer' : 'En attente'}
+            aria-label="Retirer de l'attente"
+            className="rounded text-xs leading-none transition-opacity hover:opacity-50 disabled:hover:opacity-100"
+            onClick={(event) => {
+              event.stopPropagation()
+              onToggleWaiting?.()
+            }}
+          >
+            ⏳
+          </button>
+        ) : null}
+      </div>
       {labels.length > 0 ? (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {labels.map((label) => (
@@ -230,6 +263,7 @@ export function CardTile({
         card={card}
         labels={labels}
         goal={goal}
+        planTitle={card.title}
         onToggleDone={onToggleDone}
         onToggleWaiting={() => void store.updateCard(card.id, { waiting: false })}
       />

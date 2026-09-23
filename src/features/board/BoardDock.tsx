@@ -204,6 +204,7 @@ export function BoardDock({
                             .map((id) => labelsById.get(id))
                             .filter((label) => label !== undefined)}
                           goal={card.goalId ? goalsById.get(card.goalId) : undefined}
+                          planTitle={card.title}
                           onToggleDone={() => void store.setCardDone(card.id, card.doneAt === null)}
                           onToggleWaiting={() => void store.updateCard(card.id, { waiting: false })}
                         />
