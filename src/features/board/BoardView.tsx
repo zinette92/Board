@@ -30,6 +30,7 @@ import { Button, ConfirmButton, TextInput } from '../../components/ui'
 import { nowIso } from '../../lib/id'
 import { byPosition } from '../../lib/ordering'
 import { isDockList } from '../../lib/dock'
+import type { DockSlot } from '../../lib/dock'
 import { useStore } from '../../lib/state'
 import type { Board, Card, ID, Label } from '../../lib/types'
 import {
@@ -37,7 +38,7 @@ import {
   PLAN_HOVER_EVENT,
   RAIL_GRID_ATTR,
 } from '../calendar/DayRail'
-import { BoardDock } from './BoardDock'
+import { BoardDock, DOCK_DROP_PREFIX, ensureDockList } from './BoardDock'
 import { CardFace } from './CardTile'
 import { ListColumn } from './ListColumn'
 
@@ -64,6 +65,10 @@ const collisionForBoard: CollisionDetection = (args) => {
 
   if (dragged === 'card') {
     const within = pointerWithin(args)
+    // La barre du bas flotte au-dessus du tableau : viser une section l'emporte
+    // sur la colonne qu'elle recouvre.
+    const dock = within.filter((collision) => typeOf(collision.id) === 'dock')
+    if (dock.length > 0) return dock
     const cards = within.filter((collision) => typeOf(collision.id) === 'card')
     if (cards.length > 0) return cards
     const containers = within.filter((collision) => typeOf(collision.id) === 'container')
@@ -292,6 +297,19 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     globalThis.dispatchEvent(new CustomEvent(PLAN_HOVER_EVENT, { detail: { clientY: null } }))
 
     /*
+     * Lâchée sur une section de la barre du bas : la carte y déménage. La
+     * liste de la section naît ici si elle n'existait pas encore.
+     */
+    const overId = over ? String(over.id) : ''
+    if (overId.startsWith(DOCK_DROP_PREFIX)) {
+      setDragArrangement(null)
+      const slot = overId.slice(DOCK_DROP_PREFIX.length) as DockSlot
+      const target = await ensureDockList(store, board.id, allLists, slot)
+      if (target) await store.moveCard(String(active.id), target.id, Number.MAX_SAFE_INTEGER)
+      return
+    }
+
+    /*
      * Lâchée sur le rail d'agenda : la carte ne change pas de liste, elle se
      * pose dans la journée. Le test est géométrique et non par `over` — le
      * rail n'appartient pas au DndContext du tableau, il vit au-dessus de
@@ -468,9 +486,12 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
             )
           ) : null}
         </DragOverlay>
-      </DndContext>
 
-      <BoardDock boardId={board.id} lists={allLists} onOpenCard={onOpenCard} />
+        {/* DANS le DndContext : c'est ce qui permet de lâcher une carte du
+            tableau sur une section. La barre est en position fixe, sa place
+            dans l'arbre n'a aucune conséquence visuelle. */}
+        <BoardDock boardId={board.id} lists={allLists} onOpenCard={onOpenCard} />
+      </DndContext>
     </div>
   )
 }

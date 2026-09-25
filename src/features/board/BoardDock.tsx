@@ -1,13 +1,41 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useDroppable } from '@dnd-kit/core'
 
 import { Button, IconButton, TextInput, cx } from '../../components/ui'
 import { DOCK_HINTS, DOCK_NAMES, DOCK_SLOTS, dockListOf, isDockList } from '../../lib/dock'
 import type { DockSlot } from '../../lib/dock'
 import { byPosition } from '../../lib/ordering'
 import { useStore } from '../../lib/state'
+import type { Store } from '../../lib/state'
 import type { Card, ID, List } from '../../lib/types'
 import { CardFace } from './CardTile'
+
+/**
+ * Préfixe des zones de dépôt de la barre, côté dnd-kit. Le tableau y reconnaît
+ * une section au lieu d'une colonne : `dock:inbox`, `dock:backlog`…
+ */
+export const DOCK_DROP_PREFIX = 'dock:'
+
+/**
+ * La liste d'une section, créée si elle n'existe pas encore. Partagée entre la
+ * barre (saisie, déplacement) et le tableau (dépôt d'une carte) : une section
+ * vide n'a pas de liste tant que rien n'y est tombé.
+ */
+export async function ensureDockList(
+  store: Store,
+  boardId: ID,
+  lists: List[],
+  slot: DockSlot,
+): Promise<List | undefined> {
+  const existing = dockListOf(lists, slot)
+  if (existing) return existing
+  const created = await store.createList(boardId, DOCK_NAMES[slot])
+  // MODELS est la réserve de gabarits : les automatisations n'y puisent que
+  // si la liste est marquée comme telle.
+  if (created && slot === 'models') await store.updateList(created.id, { isTemplate: true })
+  return created
+}
 
 /**
  * Pictogrammes monochromes, tracés au trait et teintés par `currentColor` :
@@ -60,6 +88,60 @@ function DockIcon({ slot, size = 21 }: { slot: DockSlot; size?: number }) {
     >
       {paths[slot]}
     </svg>
+  )
+}
+
+/**
+ * Un bouton de la barre, qui est AUSSI une zone de dépôt dnd-kit : une carte
+ * du tableau se lâche dessus pour rejoindre la section. La barre est rendue
+ * dans le DndContext du tableau, c'est ce qui rend la chose possible.
+ */
+function DockButton({
+  slot,
+  count,
+  open,
+  onToggle,
+}: {
+  slot: DockSlot
+  count: number
+  open: boolean
+  onToggle: () => void
+}) {
+  const { setNodeRef, isOver, active } = useDroppable({
+    id: `${DOCK_DROP_PREFIX}${slot}`,
+    data: { type: 'dock', slot },
+  })
+  // Une carte traîne quelque part : toutes les sections s'annoncent, sinon on
+  // ne devinerait pas qu'on peut viser la barre.
+  const awaiting = active?.data.current?.type === 'card'
+
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      title={`${DOCK_NAMES[slot]} — ${DOCK_HINTS[slot]}`}
+      aria-label={DOCK_NAMES[slot]}
+      aria-pressed={open}
+      onClick={onToggle}
+      className={cx(
+        'relative grid size-11 place-items-center rounded-xl transition-colors',
+        open ? 'bg-accent text-accent-ink' : 'text-muted hover:bg-surface-2 hover:text-ink',
+        awaiting && !isOver && 'outline-2 outline-dashed outline-accent/50',
+        isOver && 'bg-accent text-accent-ink ring-2 ring-accent',
+      )}
+    >
+      <DockIcon slot={slot} />
+      {count > 0 ? (
+        <span
+          className={cx(
+            'absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full px-1 text-[10px] leading-4 font-semibold tabular-nums',
+            open || isOver ? 'bg-surface text-ink' : 'bg-surface-2 text-muted ring-1 ring-line',
+          )}
+        >
+          {count}
+        </span>
+      ) : null}
+    </button>
   )
 }
 
@@ -131,15 +213,7 @@ export function BoardDock({
   const active = sections.find((section) => section.slot === open)
 
   /** La liste d'une section n'est créée qu'au moment où l'on y dépose quelque chose. */
-  const listFor = async (slot: DockSlot): Promise<List | undefined> => {
-    const existing = dockListOf(lists, slot)
-    if (existing) return existing
-    const created = await store.createList(boardId, DOCK_NAMES[slot])
-    // MODELS est la réserve de gabarits : les automatisations n'y puisent que
-    // si la liste est marquée comme telle.
-    if (created && slot === 'models') await store.updateList(created.id, { isTemplate: true })
-    return created
-  }
+  const listFor = (slot: DockSlot) => ensureDockList(store, boardId, lists, slot)
 
   const add = async (slot: DockSlot) => {
     const title = draft.trim()
@@ -280,38 +354,17 @@ export function BoardDock({
 
       <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-line bg-surface/95 p-1.5 shadow-2xl backdrop-blur">
         {sections.map((section) => (
-          <button
+          <DockButton
             key={section.slot}
-            type="button"
-            title={`${DOCK_NAMES[section.slot]} — ${DOCK_HINTS[section.slot]}`}
-            aria-label={DOCK_NAMES[section.slot]}
-            aria-pressed={open === section.slot}
-            onClick={() => {
+            slot={section.slot}
+            count={section.cards.length}
+            open={open === section.slot}
+            onToggle={() => {
               setOpen(open === section.slot ? null : section.slot)
               setSending(null)
               setDraft('')
             }}
-            className={cx(
-              'relative grid size-11 place-items-center rounded-xl transition-colors',
-              open === section.slot
-                ? 'bg-accent text-accent-ink'
-                : 'text-muted hover:bg-surface-2 hover:text-ink',
-            )}
-          >
-            <DockIcon slot={section.slot} />
-            {section.cards.length > 0 ? (
-              <span
-                className={cx(
-                  'absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full px-1 text-[10px] leading-4 font-semibold tabular-nums',
-                  open === section.slot
-                    ? 'bg-surface text-ink'
-                    : 'bg-surface-2 text-muted ring-1 ring-line',
-                )}
-              >
-                {section.cards.length}
-              </span>
-            ) : null}
-          </button>
+          />
         ))}
       </div>
     </div>
