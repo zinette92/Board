@@ -203,6 +203,29 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     if (created) setAddingItem((prev) => ({ ...prev, [created.id]: true }))
   }
 
+  /**
+   * Raccourci « - » : une checklist de plus sans lever les mains du clavier.
+   * Le champ d'ajout d'étape s'ouvre dans la foulée (il porte `autoFocus`),
+   * donc la frappe enchaîne directement sur le premier élément.
+   * La ref évite de réabonner l'écouteur à chaque rendu.
+   */
+  const addChecklistRef = useRef(addChecklist)
+  addChecklistRef.current = addChecklist
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== '-' || event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.repeat) return
+      // Jamais pendant une saisie : le raccourci mangerait le tiret tapé.
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      event.preventDefault()
+      void addChecklistRef.current()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
   const saveTitle = () => {
     const next = title.trim()
     if (next && next !== card.title) void store.updateCard(card.id, { title: next })

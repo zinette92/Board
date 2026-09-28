@@ -321,6 +321,7 @@ function ShortcutsSection() {
       ],
     ],
     ['Tableau — liste survolée par la souris', [['R', 'Réduire ou rouvrir la liste']]],
+    ['Fiche carte ouverte', [['-', 'Ajouter une checklist']]],
     [
       'Objectifs & Rappels',
       [
