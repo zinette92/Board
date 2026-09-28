@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Extension } from '@tiptap/core'
@@ -167,6 +168,10 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   const [labelPickerOpen, setLabelPickerOpen] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  /** Image jointe affichée en grand par-dessus la fiche. */
+  const [preview, setPreview] = useState<Attachment | null>(null)
+  const previewRef = useRef(preview)
+  previewRef.current = preview
   /** Sections ouvertes à la main alors qu'elles sont encore vides. */
   const [opened, setOpened] = useState<Record<string, boolean>>({})
   const fileInput = useRef<HTMLInputElement>(null)
@@ -215,7 +220,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== '-' || event.ctrlKey || event.metaKey || event.altKey) return
-      if (event.repeat) return
+      if (event.repeat || previewRef.current) return
       // Jamais pendant une saisie : le raccourci mangerait le tiret tapé.
       const target = event.target as HTMLElement | null
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
@@ -257,13 +262,36 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     itemInputs.current[checklistId]?.focus()
   }
 
-  const addFiles = async (files: FileList | null) => {
+  const addFiles = async (files: FileList | File[] | null) => {
     if (!files) return
     for (const file of Array.from(files)) {
       await store.addAttachment(card.id, file)
     }
     if (fileInput.current) fileInput.current.value = ''
   }
+
+  /**
+   * Ctrl + V : une image du presse-papier se range en pièce jointe, où que
+   * soit le curseur dans la fiche. La ref évite de réabonner l'écouteur à
+   * chaque rendu.
+   */
+  const addFilesRef = useRef(addFiles)
+  addFilesRef.current = addFiles
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const images = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+        file.type.startsWith('image/'),
+      )
+      // Un collage de texte reste un collage de texte : on ne touche à rien.
+      if (images.length === 0) return
+      // Sinon l'éditeur de description recevrait l'image une seconde fois.
+      event.preventDefault()
+      void addFilesRef.current(images.map(stamped))
+    }
+    document.addEventListener('paste', onPaste)
+    return () => document.removeEventListener('paste', onPaste)
+  }, [])
 
   const chipTint = list?.color
     ? listTintStyle(list.color, false)
@@ -921,7 +949,14 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                     className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2 py-1.5"
                   >
                     {isImage && url ? (
-                      <img src={url} alt="" className="size-9 shrink-0 rounded object-cover" />
+                      <button
+                        type="button"
+                        title="Voir en grand"
+                        className="shrink-0 rounded focus-visible:ring-2 focus-visible:ring-accent"
+                        onClick={() => setPreview(file)}
+                      >
+                        <img src={url} alt="" className="size-9 rounded object-cover" />
+                      </button>
                     ) : (
                       <span className="grid size-9 shrink-0 place-items-center rounded bg-surface-2 text-sm">
                         📄
@@ -931,7 +966,16 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       <span className="block truncate text-sm">{file.name}</span>
                       <span className="block text-[11px] text-muted">{formatBytes(file.size)}</span>
                     </span>
-                    {url ? (
+                    {url && isImage ? (
+                      <button
+                        type="button"
+                        className="rounded-md px-2 py-1 text-xs text-accent hover:bg-surface-2"
+                        onClick={() => setPreview(file)}
+                      >
+                        Ouvrir
+                      </button>
+                    ) : null}
+                    {url && !isImage ? (
                       <a
                         href={url}
                         download={file.name}
@@ -963,8 +1007,78 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
           className="hidden"
           onChange={(event) => void addFiles(event.target.files)}
         />
+
+        {/* Dans le body, pas dans la fiche : l'aperçu doit passer au-dessus du
+            rail (z-60), hors d'atteinte depuis le contexte d'empilement de la
+            modale (z-50). */}
+        {preview
+          ? createPortal(
+              <AttachmentPreview file={preview} onClose={() => setPreview(null)} />,
+              document.body,
+            )
+          : null}
       </div>
     </Modal>
+  )
+}
+
+/** Toute capture d'écran arrive sous le même « image.png » : on l'horodate. */
+function stamped(file: File): File {
+  if (file.name !== '' && file.name !== 'image.png') return file
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  const ext = (file.type.split('/')[1] ?? 'png').replace(/[^a-z0-9]/gi, '')
+  return new File([file], `capture-${stamp}.${ext}`, { type: file.type })
+}
+
+/**
+ * Image jointe en grand : pas une `Modal` — ni cadre, ni en-tête, l'image
+ * prend la place qu'elle peut.
+ */
+function AttachmentPreview({ file, onClose }: { file: Attachment; onClose: () => void }) {
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+
+  useEffect(() => {
+    // En capture : sinon le même Échap fermerait la fiche dessous du même coup.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      closeRef.current()
+    }
+    document.addEventListener('keydown', onKey, { capture: true })
+    return () => document.removeEventListener('keydown', onKey, { capture: true })
+  }, [])
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-3 bg-black/80 p-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <img
+        src={file.url}
+        alt={file.name}
+        className="max-h-[82vh] max-w-full rounded-lg object-contain shadow-2xl"
+      />
+      <div className="flex items-center gap-2 text-xs text-white">
+        <span className="max-w-[40vw] truncate">{file.name}</span>
+        <a
+          href={file.url}
+          download={file.name}
+          className="rounded-md bg-white/15 px-2 py-1 hover:bg-white/25"
+        >
+          Télécharger
+        </a>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md bg-white/15 px-2 py-1 hover:bg-white/25"
+        >
+          Fermer
+        </button>
+      </div>
+    </div>
   )
 }
 

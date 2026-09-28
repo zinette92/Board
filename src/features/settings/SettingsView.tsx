@@ -321,7 +321,13 @@ function ShortcutsSection() {
       ],
     ],
     ['Tableau — liste survolée par la souris', [['R', 'Réduire ou rouvrir la liste']]],
-    ['Fiche carte ouverte', [['-', 'Ajouter une checklist']]],
+    [
+      'Fiche carte ouverte',
+      [
+        ['-', 'Ajouter une checklist'],
+        ['Ctrl + V', 'Coller une image du presse-papier en pièce jointe'],
+      ],
+    ],
     [
       'Objectifs & Rappels',
       [
