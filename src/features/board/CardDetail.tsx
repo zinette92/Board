@@ -21,6 +21,7 @@ import {
   Pill,
   ProgressBar,
   Select,
+  TextArea,
   TextInput,
   cx,
 } from '../../components/ui'
@@ -113,6 +114,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   const [title, setTitle] = useState(card.title)
   const [description, setDescription] = useState(card.description)
   const [editingDescription, setEditingDescription] = useState(false)
+  const [workPlan, setWorkPlan] = useState(card.workPlan)
   /** Champs de saisie d'étape ouverts, par checklist. */
   const [addingItem, setAddingItem] = useState<Record<ID, boolean>>({})
   /**
@@ -199,6 +201,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     labels: card.labelIds.length > 0 || opened.labels === true,
     goal: card.goalId !== null || opened.goal === true,
     due: card.dueOn !== null || opened.due === true,
+    plan: card.workPlan.trim() !== '' || opened.plan === true,
     files: attachments.length > 0 || card.attachmentCount > 0,
   }
   const openSection = (key: string) => setOpened((prev) => ({ ...prev, [key]: true }))
@@ -241,6 +244,28 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     if (description !== card.description) void store.updateCard(card.id, { description })
     setEditingDescription(false)
   }
+
+  /**
+   * Le plan de travail s'enregistre en quittant le champ. La dernière valeur
+   * écrite est retenue à part : `card.workPlan` n'est à jour qu'après
+   * l'aller-retour en base, trop tard pour savoir s'il reste à écrire.
+   */
+  const savedPlan = useRef(card.workPlan)
+  const planRef = useRef({ workPlan, cardId: card.id, store })
+  planRef.current = { workPlan, cardId: card.id, store }
+
+  const saveWorkPlan = () => {
+    const { workPlan: draft, cardId, store: db } = planRef.current
+    if (draft === savedPlan.current) return
+    savedPlan.current = draft
+    void db.updateCard(cardId, { workPlan: draft })
+  }
+
+  // Un Échap démonte la fiche sans déclencher de `blur` : sans cet
+  // enregistrement au démontage, le texte en cours serait perdu.
+  const saveRef = useRef(saveWorkPlan)
+  saveRef.current = saveWorkPlan
+  useEffect(() => () => saveRef.current(), [])
 
   /** Champs d'ajout, par checklist. Non contrôlés : voir `submitItemForm`. */
   const itemInputs = useRef<Record<ID, HTMLInputElement | null>>({})
@@ -464,6 +489,11 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
               🕐 Dates
             </Button>
           ) : null}
+          {!show.plan ? (
+            <Button size="sm" onClick={() => openSection('plan')}>
+              🧭 Plan de travail
+            </Button>
+          ) : null}
           {/* Toujours visible : une carte peut porter plusieurs checklists. */}
           <Button size="sm" onClick={() => void addChecklist()}>
             ☑ Checklist
@@ -603,6 +633,19 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
             </button>
           )}
         </Section>
+
+        {/* ------------------------------------------------------- Plan de travail */}
+        {show.plan ? (
+          <Section icon="🧭" title="Plan de travail">
+            <TextArea
+              rows={6}
+              value={workPlan}
+              placeholder="Comment tu comptes t'y prendre…"
+              onChange={(event) => setWorkPlan(event.target.value)}
+              onBlur={saveWorkPlan}
+            />
+          </Section>
+        ) : null}
 
         {/* -------------------------------------------------------------- Objectif */}
         {show.goal ? (

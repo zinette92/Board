@@ -313,6 +313,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const next: Card = {
         ...copy,
         description: model.description,
+        workPlan: model.workPlan,
         goalId: model.goalId,
         contribution: model.contribution,
         labelIds: [...model.labelIds],
@@ -577,6 +578,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next: Card = {
           ...copy,
           description: source.description,
+          workPlan: source.workPlan,
           goalId: source.goalId,
           contribution: source.contribution,
           labelIds: [...source.labelIds],

@@ -96,6 +96,11 @@ export type Card = {
   title: string
   /** Markdown. */
   description: string
+  /**
+   * Comment on s'y prend, là où `description` dit ce qu'est la tâche. Texte
+   * brut, jamais nul : une carte sans plan porte la chaîne vide.
+   */
+  workPlan: string
   position: number
   /** Objectif SMART servi par cette tâche, s'il y en a un. */
   goalId: ID | null

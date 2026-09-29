@@ -110,6 +110,7 @@ type CardRow = {
   list_id: string
   title: string
   description: string
+  work_plan: string
   position: number
   goal_id: string | null
   contribution: number
@@ -290,6 +291,8 @@ const card = {
     listId: r.list_id,
     title: r.title,
     description: r.description,
+    // Colonne ajoutée après coup : les lignes d'avant n'ont pas de plan.
+    workPlan: r.work_plan ?? '',
     position: r.position,
     goalId: r.goal_id,
     contribution: r.contribution,
@@ -311,6 +314,7 @@ const card = {
     list_id: c.listId,
     title: c.title,
     description: c.description,
+    work_plan: c.workPlan,
     position: c.position,
     goal_id: c.goalId,
     contribution: c.contribution,

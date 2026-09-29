@@ -67,6 +67,7 @@ export function makeCard(boardId: ID, listId: ID, title: string, position: numbe
     listId,
     title: title.trim() || 'Nouvelle tâche',
     description: '',
+    workPlan: '',
     position,
     goalId: null,
     contribution: 1,
