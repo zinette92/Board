@@ -210,7 +210,6 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     files: attachments.length > 0 || card.attachmentCount > 0,
   }
   const openSection = (key: string) => setOpened((prev) => ({ ...prev, [key]: true }))
-  const planLabel = `🧭 Plan de travail${workPlan.trim() ? ' •' : ''}`
 
   const addChecklist = async () => {
     const created = await store.addChecklist(card.id)
@@ -494,16 +493,6 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
       }
     >
       <div className="flex flex-col gap-6 pb-1">
-        <div className="flex items-center">
-          <Button
-            size="sm"
-            variant={planMode ? 'primary' : 'subtle'}
-            onClick={() => (planMode ? leavePlan() : setPlanMode(true))}
-          >
-            {planMode ? '← Revenir à la carte' : planLabel}
-          </Button>
-        </div>
-
         {planMode ? (
           <DescriptionEditor
             value={workPlan}
@@ -1084,8 +1073,74 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
             )
           : null}
         </div>
+
+        {/* Barre du bas : une seule chose à l'écran à la fois, la carte OU le
+            plan. Même parti pris que la barre du tableau — des icônes au
+            trait, pas du texte. Collante : elle reste atteignable sur une
+            fiche longue. */}
+        <div className="sticky bottom-0 -mx-4 -mb-5 mt-1 flex items-center justify-center gap-1 rounded-b-xl border-t border-line bg-surface px-4 py-2">
+          {CARD_TABS.map(([tab, label]) => {
+            const active = tab === 'plan' ? planMode : !planMode
+            return (
+              <button
+                key={tab}
+                type="button"
+                title={label}
+                aria-label={label}
+                aria-pressed={active}
+                onClick={() => (tab === 'plan' ? setPlanMode(true) : leavePlan())}
+                className={cx(
+                  'relative inline-flex h-9 w-16 items-center justify-center rounded-lg transition-colors',
+                  active ? 'bg-surface-2 text-ink' : 'text-muted hover:bg-surface-2 hover:text-ink',
+                )}
+              >
+                <CardTabIcon tab={tab} />
+                {/* Un point dit qu'il y a déjà un plan, sans quitter la carte. */}
+                {tab === 'plan' && workPlan.trim() ? (
+                  <span className="absolute top-2 right-4 size-1.5 rounded-full bg-accent" />
+                ) : null}
+              </button>
+            )
+          })}
+        </div>
       </div>
     </Modal>
+  )
+}
+
+const CARD_TABS = [
+  ['card', 'Carte'],
+  ['plan', 'Plan de travail'],
+] as const
+
+/** Icônes de la barre du bas, au trait comme celles de la barre du tableau. */
+function CardTabIcon({ tab }: { tab: (typeof CARD_TABS)[number][0] }) {
+  return (
+    <svg
+      aria-hidden
+      width={19}
+      height={19}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {tab === 'card' ? (
+        // Une fiche : le cadre, et ses lignes de texte.
+        <>
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M7 9.5h10M7 14h6" />
+        </>
+      ) : (
+        // Une boussole : par où on compte passer.
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8 4.8-2.2z" />
+        </>
+      )}
+    </svg>
   )
 }
 
