@@ -115,6 +115,13 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   const [description, setDescription] = useState(card.description)
   const [editingDescription, setEditingDescription] = useState(false)
   const [workPlan, setWorkPlan] = useState(card.workPlan)
+  /**
+   * Le plan de travail n'est pas une section de plus : il REMPLACE la carte.
+   * Soit l'un, soit l'autre, jamais les deux à l'écran (demande user).
+   */
+  const [planMode, setPlanMode] = useState(false)
+  const planModeRef = useRef(planMode)
+  planModeRef.current = planMode
   /** Champs de saisie d'étape ouverts, par checklist. */
   const [addingItem, setAddingItem] = useState<Record<ID, boolean>>({})
   /**
@@ -201,10 +208,10 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     labels: card.labelIds.length > 0 || opened.labels === true,
     goal: card.goalId !== null || opened.goal === true,
     due: card.dueOn !== null || opened.due === true,
-    plan: card.workPlan.trim() !== '' || opened.plan === true,
     files: attachments.length > 0 || card.attachmentCount > 0,
   }
   const openSection = (key: string) => setOpened((prev) => ({ ...prev, [key]: true }))
+  const planLabel = `🧭 Plan de travail${workPlan.trim() ? ' •' : ''}`
 
   const addChecklist = async () => {
     const created = await store.addChecklist(card.id)
@@ -223,7 +230,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== '-' || event.ctrlKey || event.metaKey || event.altKey) return
-      if (event.repeat || previewRef.current) return
+      if (event.repeat || previewRef.current || planModeRef.current) return
       // Jamais pendant une saisie : le raccourci mangerait le tiret tapé.
       const target = event.target as HTMLElement | null
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
@@ -482,16 +489,40 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
       }
     >
       <div className="flex flex-col gap-6 pb-1">
+        <div className="flex items-center">
+          <Button
+            size="sm"
+            variant={planMode ? 'primary' : 'subtle'}
+            onClick={() => {
+              // Quitter le plan l’enregistre : sinon un rechargement de la page,
+              // fiche toujours ouverte, emporterait la saisie.
+              saveWorkPlan()
+              setPlanMode((value) => !value)
+            }}
+          >
+            {planMode ? '← Revenir à la carte' : planLabel}
+          </Button>
+        </div>
+
+        {planMode ? (
+          <TextArea
+            autoFocus
+            rows={16}
+            value={workPlan}
+            placeholder="Comment tu comptes t'y prendre…"
+            onChange={(event) => setWorkPlan(event.target.value)}
+            onBlur={saveWorkPlan}
+          />
+        ) : null}
+
+        {/* Masqué, pas démonté : une description en cours d'écriture, une
+            checklist à moitié saisie, tout est retrouvé tel quel au retour. */}
+        <div className={cx('flex flex-col gap-6', planMode && 'hidden')}>
         {/* Rangée d'ajout : fait naître les sections encore vides, à la Trello. */}
         <div className="flex flex-wrap items-center gap-1.5">
           {!show.due ? (
             <Button size="sm" onClick={() => openSection('due')}>
               🕐 Dates
-            </Button>
-          ) : null}
-          {!show.plan ? (
-            <Button size="sm" onClick={() => openSection('plan')}>
-              🧭 Plan de travail
             </Button>
           ) : null}
           {/* Toujours visible : une carte peut porter plusieurs checklists. */}
@@ -633,19 +664,6 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
             </button>
           )}
         </Section>
-
-        {/* ------------------------------------------------------- Plan de travail */}
-        {show.plan ? (
-          <Section icon="🧭" title="Plan de travail">
-            <TextArea
-              rows={6}
-              value={workPlan}
-              placeholder="Comment tu comptes t'y prendre…"
-              onChange={(event) => setWorkPlan(event.target.value)}
-              onBlur={saveWorkPlan}
-            />
-          </Section>
-        ) : null}
 
         {/* -------------------------------------------------------------- Objectif */}
         {show.goal ? (
@@ -1060,6 +1078,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
               document.body,
             )
           : null}
+        </div>
       </div>
     </Modal>
   )
