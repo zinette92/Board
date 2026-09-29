@@ -21,7 +21,6 @@ import {
   Pill,
   ProgressBar,
   Select,
-  TextArea,
   TextInput,
   cx,
 } from '../../components/ui'
@@ -268,6 +267,12 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     void db.updateCard(cardId, { workPlan: draft })
   }
 
+  /** Quitter le plan l'enregistre : ni bouton à cliquer, ni perte possible. */
+  const leavePlan = () => {
+    saveWorkPlan()
+    setPlanMode(false)
+  }
+
   // Un Échap démonte la fiche sans déclencher de `blur` : sans cet
   // enregistrement au démontage, le texte en cours serait perdu.
   const saveRef = useRef(saveWorkPlan)
@@ -493,25 +498,25 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
           <Button
             size="sm"
             variant={planMode ? 'primary' : 'subtle'}
-            onClick={() => {
-              // Quitter le plan l’enregistre : sinon un rechargement de la page,
-              // fiche toujours ouverte, emporterait la saisie.
-              saveWorkPlan()
-              setPlanMode((value) => !value)
-            }}
+            onClick={() => (planMode ? leavePlan() : setPlanMode(true))}
           >
             {planMode ? '← Revenir à la carte' : planLabel}
           </Button>
         </div>
 
         {planMode ? (
-          <TextArea
-            autoFocus
-            rows={16}
+          <DescriptionEditor
             value={workPlan}
-            placeholder="Comment tu comptes t'y prendre…"
-            onChange={(event) => setWorkPlan(event.target.value)}
-            onBlur={saveWorkPlan}
+            onChange={setWorkPlan}
+            onSave={leavePlan}
+            // Échap ne referme que le plan, et l'enregistre au passage.
+            onCancel={leavePlan}
+            contentClass="prose-card max-h-[60vh] min-h-[22rem] overflow-y-auto px-3 py-2 focus:outline-none"
+            actions={
+              <span className="text-[11px] text-muted">
+                Enregistré en quittant le plan — mise en forme conservée.
+              </span>
+            }
           />
         ) : null}
 
@@ -1150,16 +1155,25 @@ function AttachmentPreview({ file, onClose }: { file: Attachment; onClose: () =>
  * markdown — sérialisé à chaque frappe par `tiptap-markdown` — donc le rendu
  * en lecture (react-markdown) et les données existantes ne changent pas.
  */
+/**
+ * Le même éditeur sert à la description et au plan de travail : `contentClass`
+ * règle la hauteur de la zone d'écriture, `actions` remplace le pied de page
+ * (le plan, lui, s'enregistre tout seul et n'a donc pas de bouton).
+ */
 function DescriptionEditor({
   value,
   onChange,
   onSave,
   onCancel,
+  contentClass,
+  actions,
 }: {
   value: string
   onChange: (next: string) => void
   onSave: () => void
   onCancel: () => void
+  contentClass?: string
+  actions?: ReactNode
 }) {
   const [stylesOpen, setStylesOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
@@ -1179,7 +1193,8 @@ function DescriptionEditor({
     autofocus: 'end',
     editorProps: {
       attributes: {
-        class: 'prose-card max-h-96 min-h-36 overflow-y-auto px-3 py-2 focus:outline-none',
+        class:
+          contentClass ?? 'prose-card max-h-96 min-h-36 overflow-y-auto px-3 py-2 focus:outline-none',
       },
       handleKeyDown: (_view, event) => {
         if (event.key === 'Escape') {
@@ -1375,15 +1390,19 @@ function DescriptionEditor({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <Button variant="primary" size="sm" onClick={onSave}>
-          Enregistrer
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          Annuler
-        </Button>
-        <span className="ml-auto text-[11px] text-muted">
-          mise en forme directe — enregistrée en markdown
-        </span>
+        {actions ?? (
+          <>
+            <Button variant="primary" size="sm" onClick={onSave}>
+              Enregistrer
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onCancel}>
+              Annuler
+            </Button>
+            <span className="ml-auto text-[11px] text-muted">
+              mise en forme directe — enregistrée en markdown
+            </span>
+          </>
+        )}
       </div>
     </div>
   )
