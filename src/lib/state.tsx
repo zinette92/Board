@@ -118,9 +118,10 @@ export type Store = {
   deleteCard: (id: ID) => Promise<void>
   /**
    * Copie une carte juste sous l'originale, pièces jointes exclues. La copie
-   * d'un **modèle** fait exception : elle part en haut de TODAY.
+   * d'un **modèle** fait exception : elle part en haut de TODAY — sauf si une
+   * liste est nommée, auquel cas c'est elle qui l'emporte.
    */
-  duplicateCard: (id: ID) => Promise<Card | undefined>
+  duplicateCard: (id: ID, toListId?: ID) => Promise<Card | undefined>
   /**
    * Met la carte en attente, ou l'en retire. La mise en attente l'envoie en
    * haut de WAITING et retient la raison ; la sortie d'attente efface celle-ci
@@ -587,20 +588,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await syncGoalOfCard(next.goalId)
       },
 
-      duplicateCard: async (id) => {
+      duplicateCard: async (id, toListId) => {
         const source = snap().cards.find((item) => item.id === id)
         if (!source) return undefined
         // Dupliquer un MODÈLE, c'est se donner la tâche : la copie part en
         // haut de TODAY, et non à côté du modèle dont elle sort (demande user).
-        const fromModel =
+        // Une destination explicite — l'envoi depuis la barre du bas — passe
+        // avant : inutile de faire naître un TODAY que personne n'a demandé.
+        const toTop =
+          toListId === undefined &&
           snap().lists.find((item) => item.id === source.listId)?.isTemplate === true
-        const listId = fromModel ? (await listNamed(source.boardId, LIST_TODAY)).id : source.listId
+        const listId =
+          toListId ?? (toTop ? (await listNamed(source.boardId, LIST_TODAY)).id : source.listId)
         const siblings = cardsOfList(listId).map((item) => item.position)
         const copy = makeCard(
           source.boardId,
           listId,
           source.title,
-          fromModel ? positionAtStart(siblings) : positionAtEnd(siblings),
+          toTop ? positionAtStart(siblings) : positionAtEnd(siblings),
         )
         // Tout est repris SAUF : les pièces jointes (les fichiers du bucket ne
         // sont pas dupliqués), l'état terminé, et la programmation — deux

@@ -231,9 +231,13 @@ export function BoardDock({
    */
   const send = async (card: Card, listId: ID, model: boolean) => {
     setSending(null)
-    const moved = model ? await store.duplicateCard(card.id) : card
-    if (!moved) return
-    await store.moveCard(moved.id, listId, Number.MAX_SAFE_INTEGER)
+    // La copie naît directement dans la liste visée : une duplication sans
+    // destination, elle, file dans TODAY — ce n'est pas le cas ici.
+    if (model) {
+      await store.duplicateCard(card.id, listId)
+      return
+    }
+    await store.moveCard(card.id, listId, Number.MAX_SAFE_INTEGER)
   }
 
   /** Vers une section : sa liste est créée si elle n'existait pas encore. */
