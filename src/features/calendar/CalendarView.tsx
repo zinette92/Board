@@ -12,6 +12,7 @@ import {
   cx,
 } from '../../components/ui'
 import { addDays, formatFullDay, parseDay, toDay, today } from '../../lib/dates'
+import { withLabelColors } from '../../lib/calendars'
 import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
 import { goalProgress } from '../../lib/goals'
 import type { GcalCalendar, GcalEvent } from '../../lib/gcal'
@@ -77,10 +78,15 @@ export function CalendarView({
    * Les événements de la fenêtre affichée, relus à chaque navigation et après
    * chaque écriture. Pont non configuré → liste vide, le calendrier vit sans.
    */
-  const [gcalEvents, setGcalEvents] = useState<GcalEvent[]>([])
+  const [rawGcalEvents, setGcalEvents] = useState<GcalEvent[]>([])
   /** Agendas suivis : servent à colorier, et à choisir où écrire. */
   const [calendars, setCalendars] = useState<GcalCalendar[]>([])
   const [gcalError, setGcalError] = useState(false)
+  /** Même règle que dans le rail : l'étiquette du même nom donne la couleur. */
+  const gcalEvents = useMemo(
+    () => withLabelColors(rawGcalEvents, store.labels),
+    [rawGcalEvents, store.labels],
+  )
   const [gcalVersion, setGcalVersion] = useState(0)
   const [editing, setEditing] = useState<GcalEvent | 'new' | null>(null)
 

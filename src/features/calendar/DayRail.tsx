@@ -3,7 +3,9 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 
 import { Button, IconButton, Select, cx } from '../../components/ui'
 import { addDays, formatFullDay, parseDay, today } from '../../lib/dates'
+import { sameCalendarName, withLabelColors } from '../../lib/calendars'
 import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
+import { useStore } from '../../lib/state'
 import type { GcalCalendar, GcalEvent } from '../../lib/gcal'
 import { HOUR_PX, hhmm, minutesOf, snap, withLanes } from '../../lib/timegrid'
 
@@ -44,17 +46,6 @@ export type PlanPayload = {
   labels?: string[]
 }
 
-/** « Brain Rise », « BRAIN RISE » et « brain-rise » désignent le même agenda. */
-function sameName(a: string, b: string): boolean {
-  const key = (value: string) =>
-    value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]/gi, '')
-      .toLowerCase()
-  return key(a) === key(b) && key(a) !== ''
-}
-
 /** Prépare un glissement vers le rail, depuis n'importe quel élément. */
 export function setPlanPayload(dataTransfer: DataTransfer, payload: PlanPayload): void {
   dataTransfer.setData(PLAN_MIME, JSON.stringify(payload))
@@ -76,8 +67,14 @@ type Drag = { id: string; mode: 'move' | 'resize'; start: number; minutes: numbe
  * l'application qui écrit dans Google sans passer par une fiche.
  */
 export function DayRail({ onClose }: { onClose: () => void }) {
+  const store = useStore()
   const [day, setDay] = useState(() => today())
-  const [events, setEvents] = useState<GcalEvent[]>([])
+  const [rawEvents, setEvents] = useState<GcalEvent[]>([])
+  /**
+   * Une couleur unique du tableau à l'agenda : l'étiquette l'emporte sur la
+   * couleur renvoyée par Google, qui est celle du compte de service.
+   */
+  const events = useMemo(() => withLabelColors(rawEvents, store.labels), [rawEvents, store.labels])
   const [calendars, setCalendars] = useState<GcalCalendar[]>([])
   /** Agenda d'accueil des dépôts. */
   const [target, setTarget] = useState('')
@@ -313,7 +310,7 @@ export function DayRail({ onClose }: { onClose: () => void }) {
     // L'étiquette de la carte choisit l'agenda : les deux listes portent les
     // mêmes noms (demande user). À défaut, celui sélectionné dans le rail.
     const tagged = (payload.labels ?? [])
-      .map((name) => calendars.find((item) => sameName(item.summary, name)))
+      .map((name) => calendars.find((item) => sameCalendarName(item.summary, name)))
       .find((found) => found !== undefined)
     setBusy(true)
     setError(null)
