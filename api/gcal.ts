@@ -249,6 +249,30 @@ export default async function handler(req: Req, res: Res) {
         return
       }
 
+      /*
+       * La couleur d'un agenda, telle que l'outil la montre. Elle vit dans
+       * l'abonnement du compte de service : rien à stocker de notre côté, et
+       * le réglage suit sur tous les appareils. À l'inscription, Google en
+       * tire une au sort — d'où ce réglage, pour les agendas qui n'ont pas
+       * d'étiquette du même nom pour leur en donner une.
+       */
+      case 'setCalendarColor': {
+        const { calendarId, color } = input as { calendarId: string; color: string }
+        const hex = (color ?? '').trim()
+        if (!/^#[0-9a-f]{6}$/i.test(hex)) throw new Error('Couleur attendue au format #rrggbb.')
+        // Sans `colorRgbFormat`, Google n'accepte que ses 24 couleurs numérotées.
+        const response = await api(
+          `/users/me/calendarList/${encodeURIComponent(calendarId)}?colorRgbFormat=true`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ backgroundColor: hex, foregroundColor: '#000000' }),
+          },
+        )
+        if (!response.ok) throw new Error(`Google répond ${response.status}`)
+        res.status(200).json({ ok: true, calendars: await subscribed() })
+        return
+      }
+
       case 'removeCalendar': {
         const { calendarId } = input as { calendarId: string }
         if (calendarId === defaultId) {

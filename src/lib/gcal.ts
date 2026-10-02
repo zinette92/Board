@@ -132,6 +132,16 @@ export async function gcalAddCalendar(calendarId: string): Promise<GcalCalendar[
   return (body.calendars as GcalCalendar[]) ?? []
 }
 
+/** Couleur d'affichage d'un agenda, enregistrée chez Google. */
+export async function gcalSetCalendarColor(
+  calendarId: string,
+  color: string,
+): Promise<GcalCalendar[]> {
+  const body = await call({ action: 'setCalendarColor', calendarId, color })
+  if (body.ok !== true) throw new Error(String(body.error ?? 'Couleur refusée.'))
+  return (body.calendars as GcalCalendar[]) ?? []
+}
+
 export async function gcalRemoveCalendar(calendarId: string): Promise<GcalCalendar[]> {
   const body = await call({ action: 'removeCalendar', calendarId })
   if (body.ok !== true) throw new Error(String(body.error ?? 'Retrait refusé.'))

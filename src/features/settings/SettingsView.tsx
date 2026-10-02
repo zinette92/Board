@@ -7,7 +7,12 @@ import { SignOutButton } from '../auth/AuthGate'
 import { WallpaperPicker } from '../board/BoardView'
 import { byPosition } from '../../lib/ordering'
 import { NotificationSwitch } from '../reminders/RemindersView'
-import { gcalAddCalendar, gcalRemoveCalendar, gcalStatus } from '../../lib/gcal'
+import {
+  gcalAddCalendar,
+  gcalRemoveCalendar,
+  gcalSetCalendarColor,
+  gcalStatus,
+} from '../../lib/gcal'
 import type { GcalCalendar, GcalStatus } from '../../lib/gcal'
 import { useInstallPrompt } from '../../lib/install'
 import { useStore } from '../../lib/state'
@@ -18,10 +23,21 @@ import type { Theme } from '../../lib/theme'
  * Pipette de couleur : l'`<input type="color">` natif (spectre + pipette
  * d'écran dans Chrome, à la Figma), habillé en pastille ronde.
  */
-function ColorInput({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
+function ColorInput({
+  value,
+  onChange,
+  className,
+}: {
+  value: string
+  onChange: (hex: string) => void
+  className?: string
+}) {
   return (
     <label
-      className="relative size-8 shrink-0 cursor-pointer rounded-full border border-line shadow-sm transition-transform hover:scale-105"
+      className={cx(
+        'relative size-8 shrink-0 cursor-pointer rounded-full border border-line shadow-sm transition-transform hover:scale-105',
+        className,
+      )}
       style={{ backgroundColor: labelColorToHex(value) }}
       title="Choisir une couleur"
     >
@@ -420,14 +436,23 @@ function CalendarList({ initial, saEmail }: { initial: GcalCalendar[]; saEmail: 
            * dire : lui en créer une suffit à la corriger.
            */
           const twin = labelOfCalendar(calendar.summary, store.labels)
-          const dot = twin ? labelColorToHex(twin.color) : calendar.color
           return (
           <li key={calendar.id} className="flex items-center gap-2">
-            <span
-              aria-hidden
-              className="size-3 shrink-0 rounded-full border border-line"
-              style={dot ? { backgroundColor: dot } : undefined}
-            />
+            {twin ? (
+              <span
+                title={`Couleur de l'étiquette « ${twin.name} »`}
+                className="size-3 shrink-0 rounded-full border border-line"
+                style={{ backgroundColor: labelColorToHex(twin.color) }}
+              />
+            ) : (
+              /* Sans étiquette homonyme, la couleur se règle ici même — sinon
+                 elle resterait celle que Google a tirée au sort. */
+              <ColorInput
+                className="size-3.5"
+                value={calendar.color ?? '#64748b'}
+                onChange={(hex) => void run(() => gcalSetCalendarColor(calendar.id, hex))}
+              />
+            )}
             <span className="min-w-0 flex-1 truncate text-ink">
               {calendar.summary}
               {calendar.isDefault ? (
