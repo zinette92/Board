@@ -45,6 +45,17 @@ export function ListColumn({
   const [composing, setComposing] = useState(false)
   const [draft, setDraft] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  /**
+   * Titre validé, étiquette pas encore choisie : la grille prend la place du
+   * champ. La carte ne naît qu'une fois l'étiquette désignée — c'est ce qui
+   * garantit la règle « une carte, une étiquette ».
+   *
+   * DÉCLARÉ ICI, avec les autres états. Plus bas, il tombait APRÈS le retour
+   * anticipé des listes réduites : le nombre de hooks changeait d'un rendu à
+   * l'autre, et React arrêtait l'application (erreur #310) dès qu'une liste
+   * se repliait ou qu'un glissement en dépliait une.
+   */
+  const [picking, setPicking] = useState<string | null>(null)
 
   const sortable = useSortable({
     id: `list:${list.id}`,
@@ -108,13 +119,6 @@ export function ListColumn({
       </section>
     )
   }
-
-  /**
-   * Titre validé, étiquette pas encore choisie : la grille prend la place du
-   * champ. La carte ne naît qu'une fois l'étiquette désignée — c'est ce qui
-   * garantit la règle « une carte, une étiquette ».
-   */
-  const [picking, setPicking] = useState<string | null>(null)
 
   const create = async (title: string, labelId?: ID) => {
     const created = await store.createCard(list.boardId, list.id, title, labelId)
