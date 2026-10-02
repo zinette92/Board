@@ -175,6 +175,18 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     if (orderKey(next) !== orderKey(lists)) setDragPreview(next)
   }
 
+  /**
+   * La checklist où se trouve l'étape saisie, à l'instant T de l'aperçu — et
+   * non celle d'où elle est partie. C'est elle qu'il ne faut PAS traiter comme
+   * une cible d'accueil : sans quoi le moindre passage dans un interstice
+   * renverrait l'étape en bas de sa propre liste.
+   */
+  const homeOfDragged = draggingItem
+    ? (dragPreview ?? card?.checklists ?? []).find((list) =>
+        list.items.some((item) => item.id === draggingItem.itemId),
+      )
+    : undefined
+
   /** Dépôt : l'aperçu à l'écran devient l'ordre enregistré. */
   const commitDrag = () => {
     const preview = dragPreview
@@ -804,9 +816,35 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
         {(dragPreview ?? card.checklists).map((checklist) => {
           const checkedCount = checklist.items.filter((item) => item.done).length
           const adding = addingItem[checklist.id] === true
+          const foreign = draggingItem !== null && homeOfDragged?.id !== checklist.id
           return (
-            <Section
+            /*
+             * Le cadre entier accueille une étape venue d'une AUTRE checklist :
+             * viser une ligne au pixel près n'est plus nécessaire, le titre et
+             * les marges font l'affaire. Les lignes, elles, gardent la main
+             * (elles coupent la propagation) pour le placement fin.
+             */
+            <div
               key={checklist.id}
+              className={cx(
+                'rounded-lg transition-colors',
+                foreign && 'outline-2 outline-dashed outline-accent/40 outline-offset-4',
+              )}
+              onDragOver={(event) => {
+                if (!draggingItem) return
+                // Toujours accepter le dépôt — y compris dans les interstices de
+                // SA propre checklist, sinon un lâcher entre deux lignes serait
+                // refusé et annulerait le déplacement.
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                if (foreign) hoverMove(checklist.id, null, false)
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                commitDrag()
+              }}
+            >
+            <Section
               icon="☑"
               title={
                 <InlineEdit
@@ -837,22 +875,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                   />
                 </div>
               ) : null}
-              <ul
-                className="mb-1.5 flex flex-col gap-1"
-                // Autorise le dépôt dans les interstices ; ne replace l'étape
-                // que sur une checklist VIDE, sinon les lignes s'en chargent
-                // (sans quoi le survol d'une ligne serait traité deux fois).
-                onDragOver={(event) => {
-                  if (!draggingItem) return
-                  event.preventDefault()
-                  event.dataTransfer.dropEffect = 'move'
-                  if (checklist.items.length === 0) hoverMove(checklist.id, null, false)
-                }}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  commitDrag()
-                }}
-              >
+              <ul className="mb-1.5 flex flex-col gap-1">
                 {checklist.items.map((item) => (
                   <li
                     key={item.id}
@@ -1048,6 +1071,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 </Button>
               )}
             </Section>
+            </div>
           )
         })}
 
