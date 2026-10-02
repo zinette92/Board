@@ -13,3 +13,6 @@ export const LIST_TODAY = 'TODAY'
 
 /** Une carte mise en attente rejoint cette colonne. */
 export const LIST_WAITING = 'WAITING'
+
+/** Une carte cochée « terminée » y remonte en tête. */
+export const LIST_DONE = 'DONE'

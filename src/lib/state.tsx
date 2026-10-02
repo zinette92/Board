@@ -25,7 +25,7 @@ import {
   makeList,
 } from './create'
 import { addDays, today } from './dates'
-import { LIST_TODAY, LIST_WAITING } from './lists'
+import { LIST_DONE, LIST_TODAY, LIST_WAITING } from './lists'
 import { useToday } from './useToday'
 import { afterRun, isDue } from './models'
 import { newId, nowIso } from './id'
@@ -113,6 +113,10 @@ export type Store = {
   updateCard: (id: ID, patch: Partial<Card>) => Promise<void>
   moveCard: (id: ID, toListId: ID, targetIndex: number) => Promise<void>
   moveCardBetween: (id: ID, toListId: ID, beforeId: ID | null, afterId: ID | null) => Promise<void>
+  /**
+   * Coche ou décoche le rond « terminée ». Cocher renvoie la carte en tête de
+   * DONE ; décocher la laisse où elle est.
+   */
   setCardDone: (id: ID, done: boolean) => Promise<void>
   archiveCard: (id: ID) => Promise<void>
   deleteCard: (id: ID) => Promise<void>
@@ -578,7 +582,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await placeCard(card, toListId, positionBetween(before?.position, after?.position))
       },
 
-      /** Coche/décoche le rond « terminée » de la carte, sans la déplacer — modèle Trello. */
+      /**
+       * Le rond « terminée » de la carte. Il est le SEUL à faire foi : une
+       * checklist complète ne termine pas la carte, et cocher la carte ne
+       * coche pas ses étapes (demande user).
+       */
       setCardDone: async (id, done) => {
         const card = snap().cards.find((item) => item.id === id)
         if (!card) return
@@ -586,6 +594,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
         await syncGoalOfCard(next.goalId)
+        // Terminée = elle remonte en tête de DONE, d'où qu'elle vienne. La
+        // remettre à faire ne la ramène nulle part : seul le user sait où elle
+        // doit repartir.
+        if (!done) return
+        const target = await listNamed(next.boardId, LIST_DONE)
+        await placeCardAtIndex(next, target.id, 0)
       },
 
       duplicateCard: async (id, toListId) => {
