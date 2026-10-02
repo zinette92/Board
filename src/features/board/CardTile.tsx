@@ -76,7 +76,10 @@ export function CardFace({
             onClick={(event) => event.stopPropagation()}
             onDragStart={(event) => {
               event.stopPropagation()
-              setPlanPayload(event.dataTransfer, { title: planTitle })
+              setPlanPayload(event.dataTransfer, {
+                title: planTitle,
+                labels: labels.map((label) => label.name),
+              })
             }}
             className="cursor-grab text-[11px] leading-none text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent active:cursor-grabbing"
           >

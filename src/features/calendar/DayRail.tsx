@@ -26,7 +26,26 @@ export const PLAN_DROP_EVENT = 'perso-board:plan-drop'
 /** Marque la grille du rail : le tableau la retrouve pour se situer. */
 export const RAIL_GRID_ATTR = 'data-day-rail-grid'
 
-export type PlanPayload = { title: string }
+export type PlanPayload = {
+  title: string
+  /**
+   * Les étiquettes de la carte d'origine. Le dépôt vise l'agenda Google qui
+   * porte le même nom qu'une d'elles — WORK dans WORK, HEALTH dans HEALTH.
+   * Aucune correspondance : l'agenda choisi dans le rail fait l'affaire.
+   */
+  labels?: string[]
+}
+
+/** « Brain Rise », « BRAIN RISE » et « brain-rise » désignent le même agenda. */
+function sameName(a: string, b: string): boolean {
+  const key = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/gi, '')
+      .toLowerCase()
+  return key(a) === key(b) && key(a) !== ''
+}
 
 /** Prépare un glissement vers le rail, depuis n'importe quel élément. */
 export function setPlanPayload(dataTransfer: DataTransfer, payload: PlanPayload): void {
@@ -113,9 +132,10 @@ export function DayRail({ onClose }: { onClose: () => void }) {
       setGhost(detail.clientY === null ? null : minutesAt(detail.clientY))
     }
     const onPlanDrop = (event: Event) => {
-      const detail = (event as CustomEvent<{ clientY: number; title: string }>).detail
+      const detail = (event as CustomEvent<{ clientY: number; title: string; labels?: string[] }>)
+        .detail
       setGhost(null)
-      void onDrop(detail.clientY, JSON.stringify({ title: detail.title }))
+      void onDrop(detail.clientY, JSON.stringify({ title: detail.title, labels: detail.labels }))
     }
     globalThis.addEventListener(PLAN_HOVER_EVENT, onHover)
     globalThis.addEventListener(PLAN_DROP_EVENT, onPlanDrop)
@@ -282,6 +302,11 @@ export function DayRail({ onClose }: { onClose: () => void }) {
       return
     }
     const start = minutesAt(clientY)
+    // L'étiquette de la carte choisit l'agenda : les deux listes portent les
+    // mêmes noms (demande user). À défaut, celui sélectionné dans le rail.
+    const tagged = (payload.labels ?? [])
+      .map((name) => calendars.find((item) => sameName(item.summary, name)))
+      .find((found) => found !== undefined)
     setBusy(true)
     setError(null)
     try {
@@ -290,7 +315,7 @@ export function DayRail({ onClose }: { onClose: () => void }) {
         day,
         time: hhmm(start),
         durationMin: DEFAULT_MIN,
-        calendarId: target,
+        calendarId: tagged?.id ?? target,
       })
       await reload()
     } catch (cause) {
@@ -323,7 +348,12 @@ export function DayRail({ onClose }: { onClose: () => void }) {
 
         {calendars.length > 0 ? (
           <label className="flex items-center gap-2">
-            <span className="shrink-0 text-[11px] text-muted">Déposer dans</span>
+            <span
+              className="shrink-0 text-[11px] text-muted"
+              title="Une carte étiquetée part dans l'agenda du même nom ; celui-ci sert aux autres."
+            >
+              Déposer dans
+            </span>
             <Select
               value={target}
               className="min-w-0 flex-1"

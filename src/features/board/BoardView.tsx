@@ -143,6 +143,8 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
   const mouse = useRef({ x: -1, y: -1 })
   /** Titre de la carte en cours de glissement, ou null : lu par les écouteurs. */
   const draggedTitle = useRef<string | null>(null)
+  /** Étiquettes de la carte saisie : elles désignent l'agenda d'arrivée. */
+  const draggedLabels = useRef<string[]>([])
 
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
@@ -246,7 +248,11 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     setActiveId(event.active.id)
     if (event.active.data.current?.type !== 'card') return
     setDragArrangement(baseArrangement)
-    draggedTitle.current = cardsById.get(String(event.active.id))?.title ?? ''
+    const dragged = cardsById.get(String(event.active.id))
+    draggedTitle.current = dragged?.title ?? ''
+    draggedLabels.current = (dragged?.labelIds ?? [])
+      .map((id) => labelsById.get(id)?.name)
+      .filter((name): name is string => name !== undefined)
   }
 
   const onDragOver = (event: DragOverEvent) => {
@@ -293,7 +299,9 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     // Le geste est fini : une liste dépliée pour l'occasion se referme.
     setPeeked(null)
     const title = draggedTitle.current
+    const labels = draggedLabels.current
     draggedTitle.current = null
+    draggedLabels.current = []
     globalThis.dispatchEvent(new CustomEvent(PLAN_HOVER_EVENT, { detail: { clientY: null } }))
 
     /*
@@ -318,7 +326,7 @@ export function BoardView({ board, onOpenCard }: { board: Board; onOpenCard: (id
     if (title !== null && overRail(mouse.current.x, mouse.current.y)) {
       setDragArrangement(null)
       globalThis.dispatchEvent(
-        new CustomEvent(PLAN_DROP_EVENT, { detail: { clientY: mouse.current.y, title } }),
+        new CustomEvent(PLAN_DROP_EVENT, { detail: { clientY: mouse.current.y, title, labels } }),
       )
       return
     }

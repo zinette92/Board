@@ -110,6 +110,10 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     .filter((item) => item.boardId === card.boardId && item.archivedAt === null)
     .sort(byPosition)
   const list = boardLists.find((item) => item.id === card.listId)
+  /** Noms des étiquettes : ils désignent l'agenda d'arrivée d'un dépôt. */
+  const labelNames = store.labels
+    .filter((label) => card.labelIds.includes(label.id))
+    .map((label) => label.name)
 
   const [title, setTitle] = useState(card.title)
   const [description, setDescription] = useState(card.description)
@@ -381,7 +385,9 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
             {/* Poignee de planification : se glisse dans le rail d'agenda. */}
             <span
               draggable
-              onDragStart={(event) => setPlanPayload(event.dataTransfer, { title: card.title })}
+              onDragStart={(event) =>
+                setPlanPayload(event.dataTransfer, { title: card.title, labels: labelNames })
+              }
               title="Glisser vers l'agenda du jour pour donner une heure à cette carte"
               className="inline-flex h-7 cursor-grab items-center gap-1 rounded-md border border-line px-1.5 text-xs text-muted transition-colors select-none hover:border-accent hover:text-ink active:cursor-grabbing"
             >
@@ -908,6 +914,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                           title: card.title.trim()
                             ? `${card.title.trim()} : ${item.text}`
                             : item.text,
+                          labels: labelNames,
                         })
                       }}
                       className="shrink-0 cursor-grab text-[11px] leading-none text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent active:cursor-grabbing"
