@@ -394,6 +394,30 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 </option>
               ))}
             </select>
+            {/* Mise en attente : trop fréquente pour vivre dans le menu ⋯. */}
+            <button
+              type="button"
+              aria-pressed={card.waiting}
+              aria-label={card.waiting ? "Retirer de l'attente" : 'Mettre en attente'}
+              title={
+                card.waiting
+                  ? "Retirer de l'attente"
+                  : `Mettre en attente — la carte part en tête de ${LIST_WAITING}`
+              }
+              onClick={() => {
+                const next = !card.waiting
+                void store.setCardWaiting(card.id, next, card.waitingReason)
+                setAskReason(next)
+              }}
+              className={cx(
+                'inline-flex h-7 items-center justify-center rounded-md border px-1.5 text-xs transition-colors',
+                card.waiting
+                  ? 'border-warn/60 bg-warn/15'
+                  : 'border-line opacity-70 hover:border-accent hover:opacity-100',
+              )}
+            >
+              ⏳
+            </button>
             {/* Poignee de planification : se glisse dans le rail d'agenda. */}
             <span
               draggable
@@ -432,19 +456,6 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 <>
                   <div className="fixed inset-0 z-10" onMouseDown={() => setActionsOpen(false)} />
                   <div className="absolute top-8 right-0 z-20 flex w-52 flex-col gap-1 rounded-xl border border-line bg-surface p-2 shadow-xl">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="justify-start"
-                      onClick={() => {
-                        setActionsOpen(false)
-                        const next = !card.waiting
-                        void store.setCardWaiting(card.id, next, card.waitingReason)
-                        setAskReason(next)
-                      }}
-                    >
-                      {card.waiting ? '⏳ Retirer de l’attente' : '⏳ Mettre en attente'}
-                    </Button>
                     <Button
                       size="sm"
                       variant="ghost"
