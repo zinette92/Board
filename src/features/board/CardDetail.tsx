@@ -34,6 +34,7 @@ import {
   today,
 } from '../../lib/dates'
 import { formatAmount, formatWithUnit } from '../../lib/goals'
+import { LIST_WAITING } from '../../lib/lists'
 import { describeSchedule, makeSchedule } from '../../lib/models'
 import { AutomationFields } from '../automations/AutomationsView'
 import { setPlanPayload } from '../calendar/DayRail'
@@ -114,6 +115,10 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   const [description, setDescription] = useState(card.description)
   const [editingDescription, setEditingDescription] = useState(false)
   const [workPlan, setWorkPlan] = useState(card.workPlan)
+  const [waitingReason, setWaitingReason] = useState(card.waitingReason)
+  /** Vient de passer la carte en attente : le champ « pourquoi » prend la main. */
+  const [askReason, setAskReason] = useState(false)
+  const waitingInput = useRef<HTMLInputElement>(null)
   /**
    * Le plan de travail n'est pas une section de plus : il REMPLACE la carte.
    * Soit l'un, soit l'autre, jamais les deux à l'écran (demande user).
@@ -266,6 +271,22 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     void db.updateCard(cardId, { workPlan: draft })
   }
 
+  const saveWaitingReason = () => {
+    const next = waitingReason.trim()
+    if (next !== card.waitingReason) void store.updateCard(card.id, { waitingReason: next })
+  }
+
+  // Retirer l'attente efface la raison en base : le brouillon doit suivre,
+  // sinon l'ancien motif reviendrait à la prochaine mise en attente.
+  useEffect(() => setWaitingReason(card.waitingReason), [card.waitingReason])
+
+  // Mettre une carte en attente, c'est presque toujours vouloir dire pourquoi.
+  useEffect(() => {
+    if (!askReason || !card.waiting) return
+    waitingInput.current?.focus()
+    setAskReason(false)
+  }, [askReason, card.waiting])
+
   /** Quitter le plan l'enregistre : ni bouton à cliquer, ni perte possible. */
   const leavePlan = () => {
     saveWorkPlan()
@@ -388,7 +409,9 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       className="justify-start"
                       onClick={() => {
                         setActionsOpen(false)
-                        void store.updateCard(card.id, { waiting: !card.waiting })
+                        const next = !card.waiting
+                        void store.setCardWaiting(card.id, next, card.waitingReason)
+                        setAskReason(next)
                       }}
                     >
                       {card.waiting ? '⏳ Retirer de l’attente' : '⏳ Mettre en attente'}
@@ -543,6 +566,33 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
             📎 Pièce jointe
           </Button>
         </div>
+
+        {/* ---------------------------------------------------------------- Attente */}
+        {card.waiting ? (
+          <Section
+            icon="⏳"
+            title="En attente"
+            action={
+              <Button size="sm" onClick={() => void store.setCardWaiting(card.id, false)}>
+                Retirer
+              </Button>
+            }
+          >
+            <TextInput
+              ref={waitingInput}
+              value={waitingReason}
+              placeholder="En attente de quoi ? (devis, réponse de…)"
+              onChange={(event) => setWaitingReason(event.target.value)}
+              onBlur={saveWaitingReason}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
+            />
+            <p className="mt-1.5 text-[11px] text-muted">
+              La carte est partie dans {LIST_WAITING}. La raison s'affiche dessus, sur le tableau.
+            </p>
+          </Section>
+        ) : null}
 
         {/* -------------------------------------------------------- Envoi programmé */}
         {isModel && (card.schedule || opened.schedule === true) ? (

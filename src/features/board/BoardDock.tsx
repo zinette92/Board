@@ -280,7 +280,7 @@ export function BoardDock({
                           goal={card.goalId ? goalsById.get(card.goalId) : undefined}
                           planTitle={card.title}
                           onToggleDone={() => void store.setCardDone(card.id, card.doneAt === null)}
-                          onToggleWaiting={() => void store.updateCard(card.id, { waiting: false })}
+                          onToggleWaiting={() => void store.setCardWaiting(card.id, false)}
                         />
                       </button>
                       <IconButton

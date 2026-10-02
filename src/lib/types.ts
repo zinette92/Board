@@ -121,6 +121,11 @@ export type Card = {
    * le user qui la marque. Sans aucun rapport avec `schedule`, qui est une date.
    */
   waiting: boolean
+  /**
+   * Pourquoi elle attend — texte libre, affiché sur la carte du tableau.
+   * Vide dès que `waiting` retombe : la raison ne survit pas à l'attente.
+   */
+  waitingReason: string
   checklists: Checklist[]
   /** Nombre de pièces jointes ; les fichiers eux-mêmes vivent dans leur propre store. */
   attachmentCount: number

@@ -25,6 +25,8 @@ import {
   makeList,
 } from './create'
 import { addDays, today } from './dates'
+import { LIST_TODAY, LIST_WAITING } from './lists'
+import { useToday } from './useToday'
 import { afterRun, isDue } from './models'
 import { newId, nowIso } from './id'
 import { goalProgress } from './goals'
@@ -34,6 +36,7 @@ import {
   byPosition,
   needsRenumber,
   positionAtEnd,
+  positionAtStart,
   positionBetween,
   positionForIndex,
   renumber,
@@ -113,8 +116,17 @@ export type Store = {
   setCardDone: (id: ID, done: boolean) => Promise<void>
   archiveCard: (id: ID) => Promise<void>
   deleteCard: (id: ID) => Promise<void>
-  /** Copie une carte juste sous l'originale, pièces jointes exclues. */
+  /**
+   * Copie une carte juste sous l'originale, pièces jointes exclues. La copie
+   * d'un **modèle** fait exception : elle part en haut de TODAY.
+   */
   duplicateCard: (id: ID) => Promise<Card | undefined>
+  /**
+   * Met la carte en attente, ou l'en retire. La mise en attente l'envoie en
+   * haut de WAITING et retient la raison ; la sortie d'attente efface celle-ci
+   * et laisse la carte où elle est.
+   */
+  setCardWaiting: (id: ID, waiting: boolean, reason?: string) => Promise<void>
   /**
    * Fait de cet objectif une tâche du tableau : la carte naît rattachée à
    * l'objectif et porte ce qu'il manque pour atteindre la cible — la cocher
@@ -233,14 +245,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /**
    * Les envois de modèles échus sont produits à l'ouverture — une application
-   * web ne tourne pas en tâche de fond.
+   * web ne tourne pas en tâche de fond — PUIS à chaque changement de jour.
+   * Sans ce second rendez-vous, une application installée laissée ouverte
+   * (le cas normal ici) ne balaie plus jamais : l'envoi du 1er du mois
+   * n'arrivait pas tant que l'onglet n'avait pas été rechargé.
    */
-  const swept = useRef(false)
+  const day = useToday()
+  const sweptOn = useRef<string | null>(null)
   useEffect(() => {
-    if (!ready || swept.current) return
-    swept.current = true
+    if (!ready || sweptOn.current === day) return
+    sweptOn.current = day
     void actionsRef.current?.runDueSchedules()
-  }, [ready])
+  }, [ready, day])
 
   /** Toute action passe par ici : une écriture qui échoue ne modifie pas l'affichage. */
   const guard = useCallback(async <T,>(body: () => Promise<T>): Promise<T | undefined> => {
@@ -289,20 +305,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
      * plutôt que de perdre l'envoi — comportement demandé explicitement.
      */
     const sendCopy = async (model: Card, schedule: CardSchedule) => {
-      const wanted = schedule.listName.trim().toLowerCase()
-      let target = listsOfBoard(model.boardId).find(
-        (item) => item.name.trim().toLowerCase() === wanted,
-      )
-
-      if (!target) {
-        target = makeList(
-          model.boardId,
-          schedule.listName.trim() || 'Reçues',
-          positionAtEnd(listsOfBoard(model.boardId).map((item) => item.position)),
-        )
-        await repo.lists.put(target)
-        apply({ lists: upsert(snap().lists, [target]) })
-      }
+      const target = await listNamed(model.boardId, schedule.listName.trim() || 'Reçues')
 
       const copy = makeCard(
         model.boardId,
@@ -395,6 +398,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!goalId) return
       const goal = snap().goals.find((item) => item.id === goalId)
       if (goal) await syncParentStep(goal)
+    }
+
+    /**
+     * La liste de ce nom sur ce tableau, créée si elle n'existe pas encore.
+     * Toutes les destinations automatiques passent par là — automatisations,
+     * TODAY d'une copie de modèle, WAITING d'une mise en attente.
+     */
+    const listNamed = async (boardId: ID, name: string) => {
+      const wanted = name.trim().toLowerCase()
+      const found = listsOfBoard(boardId).find(
+        (item) => item.name.trim().toLowerCase() === wanted,
+      )
+      if (found) return found
+      const created = makeList(
+        boardId,
+        name.trim(),
+        positionAtEnd(listsOfBoard(boardId).map((item) => item.position)),
+      )
+      await repo.lists.put(created)
+      apply({ lists: upsert(snap().lists, [created]) })
+      return created
     }
 
     const placeCardAtIndex = async (card: Card, toListId: ID, targetIndex: number) => {
@@ -566,11 +590,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       duplicateCard: async (id) => {
         const source = snap().cards.find((item) => item.id === id)
         if (!source) return undefined
+        // Dupliquer un MODÈLE, c'est se donner la tâche : la copie part en
+        // haut de TODAY, et non à côté du modèle dont elle sort (demande user).
+        const fromModel =
+          snap().lists.find((item) => item.id === source.listId)?.isTemplate === true
+        const listId = fromModel ? (await listNamed(source.boardId, LIST_TODAY)).id : source.listId
+        const siblings = cardsOfList(listId).map((item) => item.position)
         const copy = makeCard(
           source.boardId,
-          source.listId,
+          listId,
           source.title,
-          positionAtEnd(cardsOfList(source.listId).map((item) => item.position)),
+          fromModel ? positionAtStart(siblings) : positionAtEnd(siblings),
         )
         // Tout est repris SAUF : les pièces jointes (les fichiers du bucket ne
         // sont pas dupliqués), l'état terminé, et la programmation — deux
@@ -649,6 +679,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = { ...card, schedule, updatedAt: nowIso() }
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
+      },
+
+      setCardWaiting: async (id, waiting, reason = '') => {
+        const card = snap().cards.find((item) => item.id === id)
+        if (!card) return
+        const next: Card = {
+          ...card,
+          waiting,
+          // La raison ne vaut que pour l'attente en cours : elle s'efface avec.
+          waitingReason: waiting ? reason.trim() : '',
+          updatedAt: nowIso(),
+        }
+        await repo.cards.put(next)
+        apply({ cards: upsert(snap().cards, [next]) })
+        // Mise en attente = la carte rejoint WAITING, en haut. En sortir ne la
+        // ramène nulle part : seul le user sait où elle doit reprendre.
+        if (!waiting) return
+        const target = await listNamed(next.boardId, LIST_WAITING)
+        if (target.id !== next.listId) await placeCardAtIndex(next, target.id, 0)
       },
 
       sendModelNow: async (id) => {

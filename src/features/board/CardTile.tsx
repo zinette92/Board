@@ -142,12 +142,20 @@ export function CardFace({
       </div>
 
       {goal ||
+      (card.waiting && card.waitingReason.trim()) ||
       card.dueOn ||
       hasDescription ||
       items.length > 0 ||
       card.attachmentCount > 0 ||
       card.schedule ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
+          {/* Pourquoi la carte attend : l'info manque justement là où on la
+              cherche, sur le tableau, sans ouvrir la fiche. */}
+          {card.waiting && card.waitingReason.trim() ? (
+            <Pill tone="warn" className="max-w-full">
+              <span className="truncate">⏳ {card.waitingReason}</span>
+            </Pill>
+          ) : null}
           {goal ? (
             <Pill tone="accent" className="max-w-full">
               <span className="truncate">🎯 {goal.title || 'Objectif sans titre'}</span>
@@ -264,7 +272,7 @@ export function CardTile({
         labels={labels}
         goal={goal}
         onToggleDone={onToggleDone}
-        onToggleWaiting={() => void store.updateCard(card.id, { waiting: false })}
+        onToggleWaiting={() => void store.setCardWaiting(card.id, false)}
       />
     </div>
   )
