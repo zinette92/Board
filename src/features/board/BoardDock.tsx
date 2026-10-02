@@ -9,6 +9,7 @@ import { byPosition } from '../../lib/ordering'
 import { useStore } from '../../lib/state'
 import type { Store } from '../../lib/state'
 import type { Card, ID, List } from '../../lib/types'
+import { LabelGrid } from './LabelGrid'
 import { CardFace } from './CardTile'
 
 /**
@@ -215,13 +216,21 @@ export function BoardDock({
   /** La liste d'une section n'est créée qu'au moment où l'on y dépose quelque chose. */
   const listFor = (slot: DockSlot) => ensureDockList(store, boardId, lists, slot)
 
-  const add = async (slot: DockSlot) => {
-    const title = draft.trim()
+  /** Titre en attente de son étiquette : même règle que sur le tableau. */
+  const [picking, setPicking] = useState<string | null>(null)
+
+  const add = async (slot: DockSlot, labelId?: ID) => {
+    const title = picking ?? draft.trim()
     if (!title) return
+    if (labelId === undefined && store.labels.length > 0) {
+      setPicking(title)
+      return
+    }
     const list = await listFor(slot)
     if (!list) return
-    await store.createCard(boardId, list.id, title)
+    await store.createCard(boardId, list.id, title, labelId)
     setDraft('')
+    setPicking(null)
   }
 
   /**
@@ -342,7 +351,15 @@ export function BoardDock({
           </div>
 
           <div className="border-t border-line p-2">
+            {picking !== null ? (
+              <LabelGrid
+                hint={`Étiquette de « ${picking} » ?`}
+                onPick={(labelId) => void add(active.slot, labelId)}
+                onCancel={() => setPicking(null)}
+              />
+            ) : null}
             <TextInput
+              className={picking !== null ? 'mt-1.5' : undefined}
               value={draft}
               placeholder={`Ajouter dans ${DOCK_NAMES[active.slot]}…`}
               aria-label={`Ajouter une carte dans ${DOCK_NAMES[active.slot]}`}

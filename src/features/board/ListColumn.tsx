@@ -14,6 +14,7 @@ import {
 import { nowIso } from '../../lib/id'
 import { LABEL_COLOR_NAMES, dotStyle, listTintStyle } from '../../lib/palette'
 import { useStore } from '../../lib/state'
+import { LabelGrid } from './LabelGrid'
 import { LABEL_COLORS } from '../../lib/types'
 import type { Card, Goal, ID, Label, List } from '../../lib/types'
 import { CardTile } from './CardTile'
@@ -108,17 +109,34 @@ export function ListColumn({
     )
   }
 
+  /**
+   * Titre validé, étiquette pas encore choisie : la grille prend la place du
+   * champ. La carte ne naît qu'une fois l'étiquette désignée — c'est ce qui
+   * garantit la règle « une carte, une étiquette ».
+   */
+  const [picking, setPicking] = useState<string | null>(null)
+
+  const create = async (title: string, labelId?: ID) => {
+    const created = await store.createCard(list.boardId, list.id, title, labelId)
+    setDraft('')
+    setPicking(null)
+    setComposing(false)
+    // Titre validé → la fiche s'ouvre aussitôt pour compléter la carte.
+    if (created) onOpenCard(created.id)
+  }
+
   const submitDraft = async () => {
     const title = draft.trim()
     if (!title) {
       setComposing(false)
       return
     }
-    const created = await store.createCard(list.boardId, list.id, title)
-    setDraft('')
-    setComposing(false)
-    // Titre validé → la fiche s'ouvre aussitôt pour compléter la carte.
-    if (created) onOpenCard(created.id)
+    // Aucune étiquette à proposer : on ne bloque pas la création pour autant.
+    if (store.labels.length > 0) {
+      setPicking(title)
+      return
+    }
+    await create(title)
   }
 
   return (
@@ -188,7 +206,13 @@ export function ListColumn({
       </div>
 
       <div className="p-2 pt-1">
-        {composing ? (
+        {picking !== null ? (
+          <LabelGrid
+            hint={`Étiquette de « ${picking} » ?`}
+            onPick={(labelId) => void create(picking, labelId)}
+            onCancel={() => setPicking(null)}
+          />
+        ) : composing ? (
           <div className="flex flex-col gap-1.5">
             <TextArea
               autoFocus

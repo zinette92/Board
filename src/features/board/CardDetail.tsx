@@ -37,7 +37,7 @@ import { formatAmount, formatWithUnit } from '../../lib/goals'
 import { LIST_WAITING } from '../../lib/lists'
 import { describeSchedule, makeSchedule } from '../../lib/models'
 import { AutomationFields } from '../automations/AutomationsView'
-import { setPlanPayload } from '../calendar/DayRail'
+import { RAIL_OPEN_EVENT, setPlanPayload } from '../calendar/DayRail'
 import { byPosition } from '../../lib/ordering'
 import { chipStyle, listTintStyle } from '../../lib/palette'
 import { MAX_ATTACHMENT_BYTES, useStore } from '../../lib/state'
@@ -393,6 +393,17 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
             >
               ⠿ Planifier
             </span>
+            {/* Le rail s'ouvre depuis la fiche : il se pose par-dessus son
+                voile, donc la poignée ci-contre a toujours où atterrir. */}
+            <button
+              type="button"
+              title="Ouvrir l'agenda du jour, par-dessus la fiche"
+              aria-label="Ouvrir l'agenda du jour"
+              onClick={() => globalThis.dispatchEvent(new Event(RAIL_OPEN_EVENT))}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-line px-1.5 text-xs text-muted transition-colors hover:border-accent hover:text-ink"
+            >
+              🗓 Agenda
+            </button>
             {card.archivedAt !== null ? <Pill tone="warn">archivée</Pill> : null}
             {done && card.doneAt ? (
               <span className="text-xs font-normal text-muted">

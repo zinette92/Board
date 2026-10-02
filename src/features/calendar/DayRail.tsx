@@ -23,6 +23,14 @@ export const PLAN_MIME = 'application/x-perso-board-plan'
 export const PLAN_HOVER_EVENT = 'perso-board:plan-hover'
 export const PLAN_DROP_EVENT = 'perso-board:plan-drop'
 
+/**
+ * Demande d'ouverture du rail. Une fiche ouverte couvre toute l'application,
+ * barre du haut comprise : le bouton 🗓 y devient inatteignable. La fiche
+ * redemande donc le rail par ici, et il s'affiche PAR-DESSUS son voile —
+ * le rail (z-60) passe devant la modale (z-50).
+ */
+export const RAIL_OPEN_EVENT = 'perso-board:rail-open'
+
 /** Marque la grille du rail : le tableau la retrouve pour se situer. */
 export const RAIL_GRID_ATTR = 'data-day-rail-grid'
 

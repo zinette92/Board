@@ -7,7 +7,7 @@ import { AutomationsView } from './features/automations/AutomationsView'
 import { BoardView } from './features/board/BoardView'
 import { CardDetail } from './features/board/CardDetail'
 import { CalendarView } from './features/calendar/CalendarView'
-import { DayRail } from './features/calendar/DayRail'
+import { DayRail, RAIL_OPEN_EVENT } from './features/calendar/DayRail'
 import { GoalsView } from './features/goals/GoalsView'
 import { SearchBar } from './features/search/SearchBar'
 import { ErrorBanner, SettingsView } from './features/settings/SettingsView'
@@ -35,6 +35,13 @@ export function App() {
   useEffect(() => {
     localStorage.setItem('perso-board:day-rail', railOpen ? 'on' : 'off')
   }, [railOpen])
+
+  // Une fiche ouverte masque cette barre : elle réclame le rail par événement.
+  useEffect(() => {
+    const open = () => setRailOpen(true)
+    globalThis.addEventListener(RAIL_OPEN_EVENT, open)
+    return () => globalThis.removeEventListener(RAIL_OPEN_EVENT, open)
+  }, [])
 
   // Le jour courant, qui bascule tout seul à minuit : la pastille des rappels
   // et les notifications doivent rester justes dans une appli laissée ouverte.

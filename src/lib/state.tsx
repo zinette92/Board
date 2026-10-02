@@ -109,7 +109,8 @@ export type Store = {
   deleteList: (id: ID) => Promise<void>
   moveList: (id: ID, targetIndex: number) => Promise<void>
 
-  createCard: (boardId: ID, listId: ID, title: string) => Promise<Card | undefined>
+  /** L'étiquette est choisie à la création : une carte en porte une, et une seule. */
+  createCard: (boardId: ID, listId: ID, title: string, labelId?: ID) => Promise<Card | undefined>
   updateCard: (id: ID, patch: Partial<Card>) => Promise<void>
   moveCard: (id: ID, toListId: ID, targetIndex: number) => Promise<void>
   moveCardBetween: (id: ID, toListId: ID, beforeId: ID | null, afterId: ID | null) => Promise<void>
@@ -537,13 +538,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* ------------------------------------------------------------------ Cartes */
-      createCard: async (boardId, listId, title) => {
-        const card = makeCard(
+      createCard: async (boardId, listId, title, labelId) => {
+        const base = makeCard(
           boardId,
           listId,
           title,
           positionAtEnd(cardsOfList(listId).map((item) => item.position)),
         )
+        const card: Card = labelId ? { ...base, labelIds: [labelId] } : base
         await repo.cards.put(card)
         apply({ cards: upsert(snap().cards, [card]) })
         return card
@@ -887,11 +889,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       toggleCardLabel: async (cardId, labelId) => {
         const card = snap().cards.find((item) => item.id === cardId)
         if (!card) return
+        // Une seule étiquette par carte (règle user) : en choisir une remplace
+        // celle d'avant. Re-cliquer la sienne la retire, pour corriger une
+        // erreur de frappe sans détour.
+        const only = card.labelIds.length === 1 && card.labelIds[0] === labelId
         const next = {
           ...card,
-          labelIds: card.labelIds.includes(labelId)
-            ? card.labelIds.filter((id) => id !== labelId)
-            : [...card.labelIds, labelId],
+          labelIds: only ? [] : [labelId],
           updatedAt: nowIso(),
         }
         await repo.cards.put(next)
