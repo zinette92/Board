@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { Button, ConfirmButton, Field, IconButton, TextInput, cx } from '../../components/ui'
+import { labelOfCalendar } from '../../lib/calendars'
 import { LABEL_COLOR_HEX, LABEL_COLOR_NAMES, chipStyle, labelColorToHex } from '../../lib/palette'
 import { SignOutButton } from '../auth/AuthGate'
 import { WallpaperPicker } from '../board/BoardView'
@@ -382,6 +383,7 @@ function ShortcutsSection() {
  * (GOOGLE_CALENDAR_ID) reçoit les créations et ne se retire pas d'ici.
  */
 function CalendarList({ initial, saEmail }: { initial: GcalCalendar[]; saEmail: string }) {
+  const store = useStore()
   const [calendars, setCalendars] = useState(initial)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -408,12 +410,23 @@ function CalendarList({ initial, saEmail }: { initial: GcalCalendar[]; saEmail: 
       </p>
 
       <ul className="flex flex-col gap-1.5">
-        {calendars.map((calendar) => (
+        {calendars.map((calendar) => {
+          /*
+           * Même règle que partout ailleurs : l'étiquette du même nom donne la
+           * couleur. Celle que Google renvoie est celle de l'abonnement du
+           * COMPTE DE SERVICE, tirée au sort à l'inscription — elle n'a aucune
+           * raison de ressembler à celle que le user voit chez lui. Un agenda
+           * sans étiquette homonyme garde donc une couleur qui ne veut rien
+           * dire : lui en créer une suffit à la corriger.
+           */
+          const twin = labelOfCalendar(calendar.summary, store.labels)
+          const dot = twin ? labelColorToHex(twin.color) : calendar.color
+          return (
           <li key={calendar.id} className="flex items-center gap-2">
             <span
               aria-hidden
               className="size-3 shrink-0 rounded-full border border-line"
-              style={calendar.color ? { backgroundColor: calendar.color } : undefined}
+              style={dot ? { backgroundColor: dot } : undefined}
             />
             <span className="min-w-0 flex-1 truncate text-ink">
               {calendar.summary}
@@ -430,7 +443,8 @@ function CalendarList({ initial, saEmail }: { initial: GcalCalendar[]; saEmail: 
               </ConfirmButton>
             )}
           </li>
-        ))}
+          )
+        })}
       </ul>
 
       <div className="flex flex-wrap items-end gap-2">
