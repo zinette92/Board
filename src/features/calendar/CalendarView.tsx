@@ -13,7 +13,7 @@ import {
 } from '../../components/ui'
 import { addDays, formatFullDay, parseDay, toDay, today } from '../../lib/dates'
 import { withLabelColors } from '../../lib/calendars'
-import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
+import { gcalCreate, gcalDelete, gcalList, gcalSpan, gcalUpdate } from '../../lib/gcal'
 import { goalProgress } from '../../lib/goals'
 import type { GcalCalendar, GcalEvent } from '../../lib/gcal'
 import { chipStyle } from '../../lib/palette'
@@ -659,13 +659,13 @@ function TimeGrid({
             allDay.push({ key: `g-${event.id}`, node: 'gcal' })
             continue
           }
-          const end = minutesOf(event.endTime)
           timed.push({
             key: `g-${event.id}`,
             label: event.time ?? '',
             title: event.title,
             start,
-            minutes: end !== null && end > start ? end - start : 60,
+            // Comme dans le rail : ce qui déborde sur demain s'arrête à minuit.
+            minutes: Math.min(gcalSpan(event), 24 * 60 - start),
             tone: 'gcal',
             done: false,
             overdue: false,

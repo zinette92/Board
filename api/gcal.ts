@@ -336,6 +336,10 @@ export default async function handler(req: Req, res: Res) {
               day: item.start?.date ?? item.start?.dateTime?.slice(0, 10) ?? '',
               time: item.start?.dateTime?.slice(11, 16) ?? null,
               endTime: item.end?.dateTime?.slice(11, 16) ?? null,
+              // Le JOUR de fin, sans quoi un créneau qui franchit minuit a une
+              // heure de fin « plus petite » que son début : impossible alors
+              // de distinguer « 19:15 → 00:30 » d'une donnée aberrante.
+              endDay: item.end?.date ?? item.end?.dateTime?.slice(0, 10) ?? null,
               calendarId: calendar.id,
               calendarName: calendar.summary,
               color: calendar.color,

@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { minutesOf } from './timegrid'
 
 /**
  * Client du pont Google Agenda (`api/gcal.ts`).
@@ -16,11 +17,39 @@ export type GcalEvent = {
   /** `HH:MM`, ou null pour un événement « journée entière ». */
   time: string | null
   endTime: string | null
+  /** `YYYY-MM-DD` de la fin : différent de `day` quand le créneau passe minuit. */
+  endDay: string | null
   /** Agenda d'origine : il faut le rappeler pour modifier ou supprimer. */
   calendarId: string
   calendarName: string
   /** Couleur telle que Google l'affiche, pour s'y retrouver d'un coup d'œil. */
   color: string | null
+}
+
+/** Durée d'un créneau par défaut, quand sa fin est inexploitable. */
+export const DEFAULT_SPAN_MIN = 60
+
+/**
+ * Durée d'un événement, en minutes.
+ *
+ * Un créneau qui franchit minuit se termine « avant » son début : sans le jour
+ * de fin on le prenait pour une anomalie et il retombait à une heure — c'est ce
+ * qui rabotait les blocs du soir. L'affichage, lui, s'arrête à minuit : voir
+ * les appelants, qui plafonnent à la fin de la journée.
+ */
+export function gcalSpan(event: GcalEvent): number {
+  const start = minutesOf(event.time)
+  const end = minutesOf(event.endTime)
+  if (start === null || end === null) return DEFAULT_SPAN_MIN
+  const nights =
+    event.endDay && event.endDay > event.day
+      ? Math.round(
+          (Date.parse(`${event.endDay}T00:00:00Z`) - Date.parse(`${event.day}T00:00:00Z`)) /
+            86_400_000,
+        )
+      : 0
+  const span = nights * 24 * 60 + end - start
+  return span > 0 ? span : DEFAULT_SPAN_MIN
 }
 
 /** Un agenda suivi. La liste vit dans la `calendarList` du compte de service. */

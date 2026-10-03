@@ -4,7 +4,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { Button, IconButton, Select, cx } from '../../components/ui'
 import { addDays, formatFullDay, parseDay, today } from '../../lib/dates'
 import { sameCalendarName, withLabelColors } from '../../lib/calendars'
-import { gcalCreate, gcalDelete, gcalList, gcalUpdate } from '../../lib/gcal'
+import { gcalCreate, gcalDelete, gcalList, gcalSpan, gcalUpdate } from '../../lib/gcal'
 import { useStore } from '../../lib/state'
 import type { GcalCalendar, GcalEvent } from '../../lib/gcal'
 import { HOUR_PX, hhmm, minutesOf, snap, withLanes } from '../../lib/timegrid'
@@ -164,11 +164,12 @@ export function DayRail({ onClose }: { onClose: () => void }) {
           .map((event) => {
             const start = minutesOf(event.time)
             if (start === null) return null
-            const end = minutesOf(event.endTime)
             return {
               event,
               start,
-              minutes: end !== null && end > start ? end - start : 60,
+              // Plafonné à la fin de la journée : ce qui déborde sur demain
+              // n'a pas de place sur cette grille-ci.
+              minutes: Math.min(gcalSpan(event), 24 * 60 - start),
             }
           })
           .filter((slot): slot is { event: GcalEvent; start: number; minutes: number } => slot !== null),
@@ -192,8 +193,7 @@ export function DayRail({ onClose }: { onClose: () => void }) {
     if (pointer.button !== 0) return
     pointer.preventDefault()
     pointer.stopPropagation()
-    const end = minutesOf(event.endTime)
-    const minutes = end !== null && end > start ? end - start : 60
+    const minutes = gcalSpan(event)
     const originY = pointer.clientY
 
     const apply = (next: Drag) => {
@@ -276,7 +276,6 @@ export function DayRail({ onClose }: { onClose: () => void }) {
     setMenu(null)
     const start = minutesOf(event.time)
     if (start === null) return
-    const end = minutesOf(event.endTime)
     setBusy(true)
     setError(null)
     try {
@@ -284,7 +283,7 @@ export function DayRail({ onClose }: { onClose: () => void }) {
         title: event.title,
         day: to,
         time: event.time!,
-        durationMin: end !== null && end > start ? end - start : 60,
+        durationMin: gcalSpan(event),
         calendarId: event.calendarId,
       })
       // On suit le creneau : sans cela il disparaitrait sans explication.
