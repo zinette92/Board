@@ -331,7 +331,11 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     input.value = ''
     input.focus()
     if (!text) return
-    await store.addChecklistItem(card.id, checklistId, text)
+    // Une liste entrée d'un bloc donne une étape par élément : le champ a pu
+    // recevoir le collé aplati, sans que l'événement de collage soit passé.
+    const parts = splitPastedItems(text)
+    if (parts.length > 1) await store.addChecklistItems(card.id, checklistId, parts)
+    else await store.addChecklistItem(card.id, checklistId, text)
     itemInputs.current[checklistId]?.focus()
   }
 
@@ -1257,25 +1261,33 @@ function CardTabIcon({ tab }: { tab: (typeof CARD_TABS)[number][0] }) {
   )
 }
 
+/** Le texte d'une étape, débarrassé de son marqueur de liste. */
+function cleanItem(line: string): string {
+  return line
+    .trim()
+    // Puce ou numérotation en tête, et la case à cocher d'une liste markdown.
+    .replace(/^([-–—*•·+>]|\d+[.)])\s*/, '')
+    .replace(/^\[[ xX]?\]\s*/, '')
+    .trim()
+}
+
 /**
- * Un texte collé dans le champ d'ajout, découpé en étapes — une par ligne.
+ * Un texte collé dans le champ d'ajout, découpé en étapes.
  *
- * Les listes arrivent rarement nues : « - », « • », « 1. », « [ ] » traînent en
- * tête, et ces marqueurs n'ont rien à faire dans le texte de l'étape. Une seule
- * ligne ne déclenche rien : c'est un collé ordinaire, pas une liste.
+ * D'abord par lignes — y compris un `\r` seul, que certaines sources
+ * produisent encore. À défaut, sur UNE seule ligne : un champ de saisie écrase
+ * les retours à la ligne d'un collé, et « -A -B -C » arrive alors d'un bloc.
+ * Ce second découpage exige que le texte COMMENCE par une puce, sinon « Mise à
+ * jour - menu » se retrouverait coupé en deux.
  */
 function splitPastedItems(raw: string): string[] {
-  return raw
-    .split(/\r?\n/)
-    .map((line) =>
-      line
-        .trim()
-        // Puce ou numérotation en tête, et la case à cocher d'une liste markdown.
-        .replace(/^([-–—*•·+>]|\d+[.)])\s*/, '')
-        .replace(/^\[[ xX]?\]\s*/, '')
-        .trim(),
-    )
-    .filter(Boolean)
+  const lignes = raw.split(/[\r\n]+/).map(cleanItem).filter(Boolean)
+  if (lignes.length > 1) return lignes
+
+  const seule = raw.trim()
+  if (!/^[-–—*•·]/.test(seule)) return lignes
+  const morceaux = seule.split(/\s+[-–—*•·]\s*/).map(cleanItem).filter(Boolean)
+  return morceaux.length > 1 ? morceaux : lignes
 }
 
 /** Toute capture d'écran arrive sous le même « image.png » : on l'horodate. */
