@@ -150,6 +150,8 @@ export type Store = {
   renameChecklist: (cardId: ID, checklistId: ID, title: string) => Promise<void>
   removeChecklist: (cardId: ID, checklistId: ID) => Promise<void>
   addChecklistItem: (cardId: ID, checklistId: ID, text: string) => Promise<void>
+  /** Plusieurs étapes d'un coup — un collé multiligne — en une seule écriture. */
+  addChecklistItems: (cardId: ID, checklistId: ID, texts: string[]) => Promise<void>
   updateChecklistItem: (
     cardId: ID,
     checklistId: ID,
@@ -823,6 +825,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           lists.map((checklist) =>
             checklist.id === checklistId
               ? { ...checklist, items: [...checklist.items, makeChecklistItem(text)] }
+              : checklist,
+          ),
+        )
+      },
+
+      addChecklistItems: async (cardId, checklistId, texts) => {
+        const clean = texts.map((text) => text.trim()).filter(Boolean)
+        if (clean.length === 0) return
+        // Une seule écriture pour toute la liste : dix étapes collées ne font
+        // pas dix allers-retours en base.
+        await patchChecklists(cardId, (lists) =>
+          lists.map((checklist) =>
+            checklist.id === checklistId
+              ? { ...checklist, items: [...checklist.items, ...clean.map(makeChecklistItem)] }
               : checklist,
           ),
         )

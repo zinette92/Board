@@ -1045,6 +1045,16 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                     }}
                     defaultValue=""
                     placeholder="Ajouter un élément puis Entrée…"
+                    // Une liste collée devient une étape par ligne. Un collé
+                    // d'une seule ligne garde le comportement normal.
+                    onPaste={(event) => {
+                      const lignes = splitPastedItems(
+                        event.clipboardData.getData('text/plain'),
+                      )
+                      if (lignes.length < 2) return
+                      event.preventDefault()
+                      void store.addChecklistItems(card.id, checklist.id, lignes)
+                    }}
                     onKeyDown={(event) => {
                       // Entrée traitée explicitement : ne dépend pas de la
                       // soumission implicite du navigateur.
@@ -1245,6 +1255,27 @@ function CardTabIcon({ tab }: { tab: (typeof CARD_TABS)[number][0] }) {
       )}
     </svg>
   )
+}
+
+/**
+ * Un texte collé dans le champ d'ajout, découpé en étapes — une par ligne.
+ *
+ * Les listes arrivent rarement nues : « - », « • », « 1. », « [ ] » traînent en
+ * tête, et ces marqueurs n'ont rien à faire dans le texte de l'étape. Une seule
+ * ligne ne déclenche rien : c'est un collé ordinaire, pas une liste.
+ */
+function splitPastedItems(raw: string): string[] {
+  return raw
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .trim()
+        // Puce ou numérotation en tête, et la case à cocher d'une liste markdown.
+        .replace(/^([-–—*•·+>]|\d+[.)])\s*/, '')
+        .replace(/^\[[ xX]?\]\s*/, '')
+        .trim(),
+    )
+    .filter(Boolean)
 }
 
 /** Toute capture d'écran arrive sous le même « image.png » : on l'horodate. */
