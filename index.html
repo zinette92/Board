@@ -48,6 +48,31 @@
           var reload = function () { location.reload() }
           Promise.all(jobs).then(reload, reload)
         }
+        /*
+         * UNE SEULE OUVERTURE APRÈS UN DÉPLOIEMENT.
+         *
+         * Le service worker sert l'index.html qu'il a en cache : la première
+         * ouverture qui suit une mise en production affiche donc encore
+         * l'ancienne version, pendant que le nouveau service worker s'installe
+         * en arrière-plan. Quand il prend la main, la page affichée est déjà
+         * périmée — d'où le « recharger deux fois » qui traînait depuis des
+         * semaines, et des corrections qui semblaient ne pas marcher.
+         *
+         * On recharge donc tout seul, une fois, au changement de contrôleur.
+         * Deux garde-fous : seulement si la page était DÉJÀ contrôlée (sinon la
+         * toute première visite rechargerait pour rien), et seulement dans les
+         * premières secondes, pour ne jamais emporter une saisie en cours.
+         */
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+          var ouvert = Date.now()
+          var recharge = false
+          navigator.serviceWorker.addEventListener('controllerchange', function () {
+            if (recharge || Date.now() - ouvert > 20000) return
+            recharge = true
+            location.reload()
+          })
+        }
+
         // Phase de capture : une erreur de chargement de ressource ne remonte pas.
         window.addEventListener(
           'error',
