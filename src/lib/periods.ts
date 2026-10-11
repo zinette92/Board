@@ -40,6 +40,23 @@ function isoWeekOf(day: string): { week: number; total: number; year: number } {
 }
 
 const MONTH_YEAR = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' })
+const DAY_MONTH = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' })
+
+/** Numéro ISO de la semaine d'un jour. */
+export function weekNumber(day: string): number {
+  return isoWeekOf(day).week
+}
+
+/**
+ * « 5 – 11 oct. », « 28 sept. – 4 oct. » : une fourchette assez courte pour
+ * tenir dans une liste. Le mois ne se répète pas quand il est le même.
+ */
+export function formatRangeShort(from: string, to: string): string {
+  const start = new Date(`${from}T12:00:00`)
+  const end = new Date(`${to}T12:00:00`)
+  if (from.slice(0, 7) === to.slice(0, 7)) return `${start.getDate()} – ${DAY_MONTH.format(end)}`
+  return `${DAY_MONTH.format(start)} – ${DAY_MONTH.format(end)}`
+}
 
 /**
  * Désignation courte d'une fenêtre : « S41 2026 », « octobre 2026 », « T4 2026 »,

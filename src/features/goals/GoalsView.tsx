@@ -40,9 +40,11 @@ import { useStore } from '../../lib/state'
 import {
   SHORTER_PERIODS,
   formatRange,
+  formatRangeShort,
   periodPosition,
   periodShort,
   periodWindowAt,
+  weekNumber,
 } from '../../lib/periods'
 import {
   GOAL_CATEGORIES,
@@ -744,14 +746,26 @@ function WindowChoice({
           title={formatRange(window.from, window.to)}
           onClick={() => onPick(window)}
         >
-          {periodShort(period, window.from)}
+          <span className="truncate">{windowLabel(period, window)}</span>
           {window.from === current ? (
-            <span className="ml-auto text-[10px] text-muted">ici</span>
+            <span className="ml-auto shrink-0 text-[10px] text-muted">ici</span>
           ) : null}
         </Button>
       ))}
     </>
   )
+}
+
+/**
+ * Ce qu'on lit dans la liste. Une semaine se désigne par ses DATES — « S41 »
+ * seul ne dit rien à personne (demande user) ; les autres périodes se nomment
+ * d'elles-mêmes.
+ */
+function windowLabel(period: GoalPeriod, window: { from: string; to: string }): string {
+  if (period === 'weekly') {
+    return `S${weekNumber(window.from)} · ${formatRangeShort(window.from, window.to)}`
+  }
+  return periodShort(period, window.from)
 }
 
 /** « Quelle semaine ? », « Quel mois ? »… */
@@ -908,7 +922,7 @@ function GoalContextMenu({
       />
       <div
         ref={menuRef}
-        className="fixed z-50 flex max-h-[70vh] w-52 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl"
+        className="fixed z-50 flex max-h-[70vh] w-60 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl"
         style={place}
       >
         {moving ? (
@@ -1104,7 +1118,7 @@ function GoalEditor({
                 <>
                   <div className="fixed inset-0 z-10" onMouseDown={() => setMoving(false)} />
                   {/* Vers le HAUT : le bouton est au bord bas de la fiche. */}
-                  <div className="absolute bottom-full left-0 z-20 mb-2 flex max-h-[60vh] w-48 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl">
+                  <div className="absolute bottom-full left-0 z-20 mb-2 flex max-h-[60vh] w-60 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl">
                     <WindowChoice
                       period={draft.period}
                       current={draft.startsOn}
@@ -1156,7 +1170,7 @@ function GoalEditor({
                   <>
                     <div className="fixed inset-0 z-10" onMouseDown={() => setAssigning(false)} />
                     {/* Ouvert vers le HAUT : le bouton est au bord bas de la fiche. */}
-                    <div className="absolute bottom-full left-0 z-20 mb-2 flex max-h-[60vh] w-48 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl">
+                    <div className="absolute bottom-full left-0 z-20 mb-2 flex max-h-[60vh] w-60 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl">
                       {assignPeriod ? (
                         <WindowChoice
                           period={assignPeriod}
