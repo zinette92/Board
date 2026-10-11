@@ -1001,6 +1001,8 @@ function GoalEditor({
   const [assigning, setAssigning] = useState(false)
   /** Période retenue dans ce menu : reste à désigner la fenêtre. */
   const [assignPeriod, setAssignPeriod] = useState<GoalPeriod | null>(null)
+  /** Menu « Reporter… » ouvert : la fenêtre d'arrivée reste à désigner. */
+  const [reporting, setReporting] = useState(false)
   /** Menu « Convertir en carte » ouvert : reste à choisir la liste d'accueil. */
   const [converting, setConverting] = useState(false)
 
@@ -1049,11 +1051,6 @@ function GoalEditor({
   const save = () => persist()
 
   /**
-   * Report : l'objectif glisse d'UNE période — semaine → semaine suivante,
-   * mois → mois suivant… Échéance par défaut → fin de la fenêtre suivante ;
-   * date précise → décalée d'exactement une période.
-   */
-  /**
    * Assigner à une autre période : l'objectif change de famille et se pose
    * sur la fenêtre de cette période qui contient son échéance — une date
    * précise est gardée si elle y tombe, sinon la fin de fenêtre prend le
@@ -1098,15 +1095,31 @@ function GoalEditor({
       footer={
         <>
           <div className="mr-auto flex items-center gap-2">
-            <Button
-              title="Poser cet objectif sur une autre semaine, un autre mois…"
-              onClick={() => {
-                setAssignPeriod(draft.period)
-                setAssigning(true)
-              }}
-            >
-              ↷ Reporter…
-            </Button>
+            <div className="relative">
+              <Button
+                title="Poser cet objectif sur une autre semaine, un autre mois…"
+                onClick={() => setReporting(!reporting)}
+              >
+                ↷ Reporter…
+              </Button>
+              {reporting ? (
+                <>
+                  <div className="fixed inset-0 z-10" onMouseDown={() => setReporting(false)} />
+                  {/* Vers le HAUT : le bouton est au bord bas de la fiche. */}
+                  <div className="absolute bottom-full left-0 z-20 mb-2 flex max-h-[60vh] w-48 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl">
+                    <WindowChoice
+                      period={draft.period}
+                      from={draft.dueOn}
+                      startOffset={1}
+                      onPick={(window) => {
+                        setReporting(false)
+                        void persist({ startsOn: window.from, dueOn: window.to })
+                      }}
+                    />
+                  </div>
+                </>
+              ) : null}
+            </div>
             <div className="relative">
               <Button
                 title="Créer la tâche qui porte cet objectif : une fois la carte cochée, l'objectif est atteint"
