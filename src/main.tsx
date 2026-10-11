@@ -42,7 +42,9 @@ function MissingConfig() {
 }
 
 // Le démarrage a abouti : le filet de secours d'`index.html` peut se réarmer
-// pour une prochaine fois.
+// pour une prochaine fois. L'autre garde-fou de cette page — le rechargement
+// automatique quand une nouvelle version prend la main — vit lui aussi hors du
+// bundle, pour pouvoir agir depuis une page périmée.
 try {
   sessionStorage.removeItem('perso-board:auto-recovery')
 } catch {
