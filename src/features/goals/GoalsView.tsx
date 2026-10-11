@@ -716,26 +716,22 @@ function useTargetLists() {
 /**
  * Choisir LA fenêtre : quelle semaine, quel mois, quel trimestre.
  *
- * Une période ne se devine pas. Assigner un objectif à « Hebdo » le posait sur
- * la semaine de son échéance, et « Reporter » ne savait aller qu'à la suivante :
- * impossible de viser la semaine 45 (demande user).
+ * La liste part TOUJOURS de la fenêtre en cours, jamais de celle de l'objectif.
+ * C'est ce qui permet de le ramener en arrière — un objectif posé en novembre
+ * peut revenir en octobre tant qu'octobre n'est pas fini — sans jamais proposer
+ * une fenêtre déjà close, où il ne servirait plus à rien (demande user).
  */
 function WindowChoice({
   period,
-  from,
-  startOffset = 0,
+  current,
   onPick,
 }: {
   period: GoalPeriod
-  /** Date de référence : les fenêtres proposées l'entourent. */
-  from: string
-  /** 0 = la fenêtre qui contient `from` ; 1 = la suivante, pour un report. */
-  startOffset?: number
+  /** Fenêtre actuelle de l'objectif, signalée dans la liste. */
+  current: string
   onPick: (window: { from: string; to: string }) => void
 }) {
-  const windows = Array.from({ length: 8 }, (_, index) =>
-    periodWindowAt(period, startOffset + index, from),
-  )
+  const windows = Array.from({ length: 8 }, (_, index) => periodWindowAt(period, index, today()))
   return (
     <>
       <span className="px-1 pb-1 text-[11px] text-muted">Quelle {PERIOD_NOUNS[period]} ?</span>
@@ -749,6 +745,9 @@ function WindowChoice({
           onClick={() => onPick(window)}
         >
           {periodShort(period, window.from)}
+          {window.from === current ? (
+            <span className="ml-auto text-[10px] text-muted">ici</span>
+          ) : null}
         </Button>
       ))}
     </>
@@ -840,8 +839,8 @@ function GoalContextMenu({
   const [confirmDelete, setConfirmDelete] = useState(false)
   /** Le menu bascule sur le choix de la liste, plutôt que d'ouvrir un sous-menu. */
   const [choosing, setChoosing] = useState(false)
-  /** « Reporter » ouvert : reste à désigner la fenêtre d'arrivée. */
-  const [reporting, setReporting] = useState(false)
+  /** « Déplacer » ouvert : reste à désigner la fenêtre d'arrivée. */
+  const [moving, setMoving] = useState(false)
   const goal = store.goals.find((item) => item.id === goalId)
 
   /**
@@ -885,8 +884,8 @@ function GoalContextMenu({
     }
   }
 
-  /** Reporter : l'objectif se pose sur la fenêtre désignée, sans changer de période. */
-  const report = async (window: { from: string; to: string }) => {
+  /** Déplacer : l'objectif se pose sur la fenêtre désignée, sans changer de période. */
+  const move = async (window: { from: string; to: string }) => {
     onClose()
     await store.updateGoal(goal.id, { startsOn: window.from, dueOn: window.to })
   }
@@ -912,12 +911,11 @@ function GoalContextMenu({
         className="fixed z-50 flex max-h-[70vh] w-52 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl"
         style={place}
       >
-        {reporting ? (
+        {moving ? (
           <WindowChoice
             period={goal.period}
-            from={goal.dueOn}
-            startOffset={1}
-            onPick={(window) => void report(window)}
+            current={goal.startsOn}
+            onPick={(window) => void move(window)}
           />
         ) : choosing ? (
           <ListChoice
@@ -950,9 +948,9 @@ function GoalContextMenu({
               size="sm"
               variant="ghost"
               className="justify-start"
-              onClick={() => setReporting(true)}
+              onClick={() => setMoving(true)}
             >
-              ↷ Reporter…
+              ⇄ Déplacer…
             </Button>
             <Button
               size="sm"
@@ -1001,8 +999,8 @@ function GoalEditor({
   const [assigning, setAssigning] = useState(false)
   /** Période retenue dans ce menu : reste à désigner la fenêtre. */
   const [assignPeriod, setAssignPeriod] = useState<GoalPeriod | null>(null)
-  /** Menu « Reporter… » ouvert : la fenêtre d'arrivée reste à désigner. */
-  const [reporting, setReporting] = useState(false)
+  /** Menu « Déplacer… » ouvert : la fenêtre d'arrivée reste à désigner. */
+  const [moving, setMoving] = useState(false)
   /** Menu « Convertir en carte » ouvert : reste à choisir la liste d'accueil. */
   const [converting, setConverting] = useState(false)
 
@@ -1098,21 +1096,20 @@ function GoalEditor({
             <div className="relative">
               <Button
                 title="Poser cet objectif sur une autre semaine, un autre mois…"
-                onClick={() => setReporting(!reporting)}
+                onClick={() => setMoving(!moving)}
               >
-                ↷ Reporter…
+                ⇄ Déplacer…
               </Button>
-              {reporting ? (
+              {moving ? (
                 <>
-                  <div className="fixed inset-0 z-10" onMouseDown={() => setReporting(false)} />
+                  <div className="fixed inset-0 z-10" onMouseDown={() => setMoving(false)} />
                   {/* Vers le HAUT : le bouton est au bord bas de la fiche. */}
                   <div className="absolute bottom-full left-0 z-20 mb-2 flex max-h-[60vh] w-48 flex-col gap-1 overflow-y-auto rounded-xl border border-line bg-surface p-2 shadow-xl">
                     <WindowChoice
                       period={draft.period}
-                      from={draft.dueOn}
-                      startOffset={1}
+                      current={draft.startsOn}
                       onPick={(window) => {
-                        setReporting(false)
+                        setMoving(false)
                         void persist({ startsOn: window.from, dueOn: window.to })
                       }}
                     />
@@ -1163,7 +1160,7 @@ function GoalEditor({
                       {assignPeriod ? (
                         <WindowChoice
                           period={assignPeriod}
-                          from={draft.dueOn}
+                          current={draft.startsOn}
                           onPick={(window) => {
                             setAssigning(false)
                             setAssignPeriod(null)
