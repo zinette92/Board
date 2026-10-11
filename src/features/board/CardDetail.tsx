@@ -34,6 +34,7 @@ import {
   today,
 } from '../../lib/dates'
 import { formatAmount, formatWithUnit } from '../../lib/goals'
+import { periodShort } from '../../lib/periods'
 import { LIST_WAITING } from '../../lib/lists'
 import { describeSchedule, makeSchedule } from '../../lib/models'
 import { AutomationFields } from '../automations/AutomationsView'
@@ -41,7 +42,8 @@ import { RAIL_OPEN_EVENT, setPlanPayload } from '../calendar/DayRail'
 import { byPosition } from '../../lib/ordering'
 import { chipStyle, listTintStyle } from '../../lib/palette'
 import { MAX_ATTACHMENT_BYTES, useStore } from '../../lib/state'
-import type { Attachment, Card, CardSchedule, ID } from '../../lib/types'
+import { GOAL_PERIODS, GOAL_PERIOD_LABELS } from '../../lib/types'
+import type { Attachment, Card, CardSchedule, Goal, GoalPeriod, ID } from '../../lib/types'
 
 const dueDayFormatter = new Intl.DateTimeFormat('fr-FR', {
   weekday: 'short',
@@ -766,11 +768,25 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                   }
                 >
                   <option value="">— Aucun —</option>
-                  {store.goals.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.title || 'Objectif sans titre'}
-                    </option>
-                  ))}
+                  {/*
+                   * Groupés par période, et chaque ligne porte SA fenêtre :
+                   * un objectif hebdomadaire existe une fois par semaine, et
+                   * quarante « Revue » identiques ne se choisissent pas.
+                   */}
+                  {GOAL_PERIODS.map((period) => {
+                    const list = goalsOfPeriod(store.goals, period, today())
+                    if (list.length === 0) return null
+                    return (
+                      <optgroup key={period} label={GOAL_PERIOD_LABELS[period]}>
+                        {list.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {periodShort(item.period, item.startsOn)} ·{' '}
+                            {item.title || 'Objectif sans titre'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )
+                  })}
                 </Select>
               </label>
               <label>
@@ -793,7 +809,8 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 <>
                   Cocher le rond ajoutera{' '}
                   <strong className="text-ink">{formatWithUnit(card.contribution, goal.unit)}</strong>{' '}
-                  à « {goal.title} » (cible : {formatWithUnit(goal.target, goal.unit)}).
+                  à « {goal.title} » · {periodShort(goal.period, goal.startsOn)} (cible :{' '}
+                  {formatWithUnit(goal.target, goal.unit)}).
                 </>
               ) : (
                 "Rattache la tâche à un objectif pour qu'elle fasse avancer sa mesure une fois cochée."
@@ -1259,6 +1276,24 @@ function CardTabIcon({ tab }: { tab: (typeof CARD_TABS)[number][0] }) {
       )}
     </svg>
   )
+}
+
+/**
+ * Les objectifs d'une période, fenêtres en cours ou à venir d'abord, puis les
+ * passées de la plus récente à la plus ancienne. Sans cet ordre, la semaine du
+ * jour se retrouverait noyée au milieu de toutes les autres.
+ */
+function goalsOfPeriod(goals: Goal[], period: GoalPeriod, day: string): Goal[] {
+  const open = (goal: Goal) => (goal.dueOn >= day ? 0 : 1)
+  return goals
+    .filter((goal) => goal.period === period)
+    .sort((a, b) =>
+      open(a) !== open(b)
+        ? open(a) - open(b)
+        : open(a) === 0
+          ? a.startsOn.localeCompare(b.startsOn)
+          : b.startsOn.localeCompare(a.startsOn),
+    )
 }
 
 /** Le texte d'une étape, débarrassé de son marqueur de liste. */

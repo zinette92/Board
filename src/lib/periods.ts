@@ -22,7 +22,7 @@ export function formatRange(from: string, to: string): string {
 }
 
 /** Numéro ISO de la semaine d'un jour, et le total de semaines de son année ISO. */
-function isoWeekOf(day: string): { week: number; total: number } {
+function isoWeekOf(day: string): { week: number; total: number; year: number } {
   const at = (input: string) => {
     const date = new Date(input + 'T12:00:00Z')
     // Le jeudi de la semaine porte l'année ISO.
@@ -36,7 +36,32 @@ function isoWeekOf(day: string): { week: number; total: number } {
   }
   const current = at(day)
   // Le 28 décembre appartient toujours à la dernière semaine ISO de l'année.
-  return { week: current.week, total: at(`${current.year}-12-28`).week }
+  return { week: current.week, total: at(`${current.year}-12-28`).week, year: current.year }
+}
+
+const MONTH_YEAR = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' })
+
+/**
+ * Désignation courte d'une fenêtre : « S41 2026 », « octobre 2026 », « T4 2026 »,
+ * « 2026 ».
+ *
+ * Sert là où il faut DÉSIGNER une période plutôt que la décrire — une liste
+ * déroulante d'objectifs, par exemple, où deux objectifs portant le même titre
+ * ne se distinguent que par leur semaine.
+ */
+export function periodShort(period: GoalPeriod, from: string): string {
+  switch (period) {
+    case 'weekly': {
+      const { week, year } = isoWeekOf(from)
+      return `S${week} ${year}`
+    }
+    case 'monthly':
+      return MONTH_YEAR.format(new Date(`${from}T12:00:00`))
+    case 'quarter':
+      return `T${Math.floor((Number(from.slice(5, 7)) - 1) / 3) + 1} ${from.slice(0, 4)}`
+    case 'yearly':
+      return from.slice(0, 4)
+  }
 }
 
 /**
