@@ -912,16 +912,30 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                   <li
                     key={item.id}
                     draggable
+                    title="Glisser pour réordonner, ou vers l'agenda du jour (🗓) pour en faire un créneau"
                     onDragStart={(event) => {
-                      // Depuis la case, le texte (span .cursor-text) ou un
-                      // bouton : pas de glissement, l'élément garde son rôle.
+                      // Depuis la case à cocher ou un bouton : pas de
+                      // glissement, l'élément garde son rôle. Le texte, lui,
+                      // se saisit — c'est l'essentiel de la ligne.
                       const origin = event.target as HTMLElement | null
-                      if (origin?.closest('input, button, textarea, .cursor-text')) {
+                      if (origin?.closest('input, button, textarea')) {
                         event.preventDefault()
                         return
                       }
+                      /*
+                       * UN geste, DEUX destinations. L'état React porte le
+                       * réordonnancement, que seules les checklists lisent ; le
+                       * presse-papier du glissement porte la planification, que
+                       * seul le rail lit. Chacun ignore l'autre, et c'est le
+                       * lieu du lâcher qui tranche.
+                       */
                       setDraggingItem({ checklistId: checklist.id, itemId: item.id })
-                      event.dataTransfer.effectAllowed = 'move'
+                      setPlanPayload(event.dataTransfer, {
+                        title: card.title.trim()
+                          ? `${card.title.trim()} : ${item.text}`
+                          : item.text,
+                        labels: labelNames,
+                      })
                     }}
                     onDragEnd={() => {
                       // Glissement abandonné (Échap, dépôt hors zone) :
@@ -963,30 +977,6 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                         })
                       }
                     />
-                    {/*
-                     * Planifier cette tâche. Poignée SÉPARÉE, et non le même
-                     * `dragstart` que la ligne : mêlés, les deux gestes se
-                     * gênaient et le réordonnancement ne prenait plus. Elle
-                     * coupe la propagation, la ligne ne se croit donc jamais
-                     * en cours de déplacement.
-                     */}
-                    <span
-                      draggable
-                      title="Glisser vers l'agenda du jour (🗓, en haut de la fiche) : cette étape y devient un créneau, dans l'agenda de l'étiquette de la carte"
-                      aria-label="Planifier cette tâche"
-                      onDragStart={(event) => {
-                        event.stopPropagation()
-                        setPlanPayload(event.dataTransfer, {
-                          title: card.title.trim()
-                            ? `${card.title.trim()} : ${item.text}`
-                            : item.text,
-                          labels: labelNames,
-                        })
-                      }}
-                      className="shrink-0 cursor-grab text-[11px] leading-none text-muted opacity-50 transition-opacity hover:text-accent hover:opacity-100 active:cursor-grabbing"
-                    >
-                      ⠿
-                    </span>
                     <InlineEdit
                       value={item.text}
                       onSubmit={(text) =>
