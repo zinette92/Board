@@ -972,7 +972,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                      */}
                     <span
                       draggable
-                      title="Glisser vers l'agenda du jour pour donner une heure à cette tâche"
+                      title="Glisser vers l'agenda du jour (🗓, en haut de la fiche) : cette étape y devient un créneau, dans l'agenda de l'étiquette de la carte"
                       aria-label="Planifier cette tâche"
                       onDragStart={(event) => {
                         event.stopPropagation()
@@ -983,7 +983,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                           labels: labelNames,
                         })
                       }}
-                      className="shrink-0 cursor-grab text-[11px] leading-none text-muted opacity-0 transition-opacity group-hover:opacity-100 hover:text-accent active:cursor-grabbing"
+                      className="shrink-0 cursor-grab text-[11px] leading-none text-muted opacity-50 transition-opacity hover:text-accent hover:opacity-100 active:cursor-grabbing"
                     >
                       ⠿
                     </span>
