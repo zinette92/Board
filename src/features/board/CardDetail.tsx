@@ -141,6 +141,12 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
    */
   const [draggingItem, setDraggingItem] = useState<{ checklistId: ID; itemId: ID } | null>(null)
   /**
+   * Checklist entière en cours de déplacement. Elle partage l'aperçu des
+   * étapes (`dragPreview`) : dans les deux cas c'est la même liste de
+   * checklists qui est réarrangée, et un seul dépôt l'enregistre.
+   */
+  const [draggingChecklist, setDraggingChecklist] = useState<ID | null>(null)
+  /**
    * Aperçu RÉEL pendant le glissement : les checklists réordonnées en direct,
    * l'étape déjà à sa place d'arrivée. Rien n'est écrit tant qu'on n'a pas
    * déposé — `null` = afficher l'ordre enregistré.
@@ -189,10 +195,27 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
       )
     : undefined
 
+  /**
+   * Survol pendant le glissement d'une CHECKLIST : elle se replace dans
+   * l'ordre affiché, moitié haute avant, moitié basse après — même règle que
+   * pour une étape.
+   */
+  const hoverChecklist = (overId: ID, after: boolean) => {
+    if (!card || !draggingChecklist || draggingChecklist === overId) return
+    const lists = dragPreview ?? card.checklists
+    const moved = lists.find((list) => list.id === draggingChecklist)
+    if (!moved) return
+    const next = lists.filter((list) => list.id !== draggingChecklist)
+    const over = next.findIndex((list) => list.id === overId)
+    next.splice(over === -1 ? next.length : over + (after ? 1 : 0), 0, moved)
+    if (orderKey(next) !== orderKey(lists)) setDragPreview(next)
+  }
+
   /** Dépôt : l'aperçu à l'écran devient l'ordre enregistré. */
   const commitDrag = () => {
     const preview = dragPreview
     setDraggingItem(null)
+    setDraggingChecklist(null)
     setDragPreview(null)
     if (card && preview) void store.updateCard(card.id, { checklists: preview })
   }
@@ -861,8 +884,17 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
               className={cx(
                 'rounded-lg transition-colors',
                 foreign && 'outline-2 outline-dashed outline-accent/40 outline-offset-4',
+                draggingChecklist === checklist.id && 'opacity-50',
               )}
               onDragOver={(event) => {
+                // Une CHECKLIST traîne : c'est elle qui se replace, pas une étape.
+                if (draggingChecklist) {
+                  event.preventDefault()
+                  event.dataTransfer.dropEffect = 'move'
+                  const box = event.currentTarget.getBoundingClientRect()
+                  hoverChecklist(checklist.id, event.clientY > box.top + box.height / 2)
+                  return
+                }
                 if (!draggingItem) return
                 // Toujours accepter le dépôt — y compris dans les interstices de
                 // SA propre checklist, sinon un lâcher entre deux lignes serait
@@ -879,12 +911,35 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
             <Section
               icon="☑"
               title={
-                <InlineEdit
-                  value={checklist.title}
-                  onSubmit={(next) => store.renameChecklist(card.id, checklist.id, next)}
-                  className="text-sm font-semibold"
-                  placeholder="Titre de la checklist"
-                />
+                /*
+                 * L'en-tête est la poignée : glisser le titre déplace toute la
+                 * checklist. Les étapes ont déjà leur propre glissement — leur
+                 * donner aussi celui-ci rendrait chaque geste ambigu.
+                 */
+                <span
+                  draggable
+                  title="Glisser le titre pour déplacer cette checklist"
+                  className="inline-flex max-w-full cursor-grab items-center gap-1.5 active:cursor-grabbing"
+                  onDragStart={(event) => {
+                    event.stopPropagation()
+                    setDraggingChecklist(checklist.id)
+                    event.dataTransfer.effectAllowed = 'move'
+                  }}
+                  onDragEnd={() => {
+                    setDraggingChecklist(null)
+                    setDragPreview(null)
+                  }}
+                >
+                  <span aria-hidden className="text-[11px] leading-none text-muted opacity-50">
+                    ⠿
+                  </span>
+                  <InlineEdit
+                    value={checklist.title}
+                    onSubmit={(next) => store.renameChecklist(card.id, checklist.id, next)}
+                    className="text-sm font-semibold"
+                    placeholder="Titre de la checklist"
+                  />
+                </span>
               }
               action={
                 <ConfirmButton
