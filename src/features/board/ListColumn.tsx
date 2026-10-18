@@ -13,8 +13,10 @@ import {
 } from '../../components/ui'
 import { nowIso } from '../../lib/id'
 import { LABEL_COLOR_NAMES, dotStyle, listTintStyle } from '../../lib/palette'
+import { isSeparator } from '../../lib/separator'
 import { useStore } from '../../lib/state'
 import { LabelGrid } from './LabelGrid'
+import { SeparatorTile } from './CardTile'
 import { LABEL_COLORS } from '../../lib/types'
 import type { Card, Goal, ID, Label, List } from '../../lib/types'
 import { CardTile } from './CardTile'
@@ -135,6 +137,13 @@ export function ListColumn({
       setComposing(false)
       return
     }
+    // Un séparateur n'est pas une tâche : ni étiquette, ni fiche qui s'ouvre.
+    if (isSeparator(title)) {
+      await store.createCard(list.boardId, list.id, title)
+      setDraft('')
+      setComposing(false)
+      return
+    }
     // Aucune étiquette à proposer : on ne bloque pas la création pour autant.
     if (store.labels.length > 0) {
       setPicking(title)
@@ -172,7 +181,9 @@ export function ListColumn({
           className="font-display min-w-0 flex-1 truncate text-sm font-bold"
           placeholder="Nom de la liste"
         />
-        <span className="text-xs text-muted tabular-nums">{cards.length}</span>
+        <span className="text-xs text-muted tabular-nums">
+          {cards.filter((card) => !isSeparator(card.title)).length}
+        </span>
         <IconButton
           label="Réduire la liste"
           className="text-[10px]"
@@ -190,7 +201,10 @@ export function ListColumn({
       <div ref={setDropRef} className="min-h-6 flex-1 overflow-y-auto px-2 pb-1">
         <SortableContext items={cards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-1.5">
-            {cards.map((card) => (
+            {cards.map((card) =>
+              isSeparator(card.title) ? (
+                <SeparatorTile key={card.id} card={card} />
+              ) : (
               <CardTile
                 key={card.id}
                 card={card}

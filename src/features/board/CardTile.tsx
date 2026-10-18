@@ -2,13 +2,74 @@ import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
-import { Pill, cx } from '../../components/ui'
+import { ConfirmButton, Pill, cx } from '../../components/ui'
 import { dueTone, formatDue } from '../../lib/dates'
 import { formatAmount } from '../../lib/goals'
 import { chipStyle } from '../../lib/palette'
 import { setPlanPayload } from '../calendar/DayRail'
 import { useStore } from '../../lib/state'
 import type { Card, Goal, Label } from '../../lib/types'
+
+/**
+ * Le trait de séparation : une carte au titre « --- ». Il se déplace comme une
+ * carte, ne s'ouvre pas — il n'y a rien dedans — et se retire au clic droit,
+ * en deux temps pour qu'un clic malheureux ne l'emporte pas.
+ */
+export function SeparatorTile({ card }: { card: Card }) {
+  const store = useStore()
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: card.id,
+    data: { type: 'card', listId: card.listId },
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-card-id={card.id}
+      title="Séparateur — clic droit pour le retirer"
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cx('group cursor-grab py-2 active:cursor-grabbing', isDragging && 'opacity-50')}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        setMenu({ x: event.clientX, y: event.clientY })
+      }}
+      {...attributes}
+      {...listeners}
+    >
+      <div className="h-0.5 rounded-full bg-line transition-colors group-hover:bg-accent/60" />
+      {menu ? (
+        <>
+          {/* Voile transparent : un clic ailleurs referme, comme partout. */}
+          <div
+            className="fixed inset-0 z-40"
+            onMouseDown={() => setMenu(null)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setMenu(null)
+            }}
+          />
+          <div
+            className="fixed z-50 rounded-xl border border-line bg-surface p-2 shadow-xl"
+            style={{ left: menu.x, top: menu.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <ConfirmButton
+              size="sm"
+              confirmLabel="Supprimer ?"
+              onConfirm={() => {
+                setMenu(null)
+                void store.deleteCard(card.id)
+              }}
+            >
+              🗑 Supprimer
+            </ConfirmButton>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
 
 /** Un glisser natif de fichier(s) OS, distinct du drag-and-drop pointeur de dnd-kit. */
 function isFileDrag(event: { dataTransfer: DataTransfer | null }): boolean {
