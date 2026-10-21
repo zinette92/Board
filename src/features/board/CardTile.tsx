@@ -231,6 +231,7 @@ export function CardFace({
               }
             >
               📣 {formatDue(card.waitingUntil)}
+              {card.waitingTime ? ` · ${card.waitingTime}` : ''}
             </Pill>
           ) : null}
           {goal ? (

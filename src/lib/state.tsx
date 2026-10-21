@@ -714,6 +714,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // s'effacent avec elle.
           waitingReason: waiting ? reason.trim() : '',
           waitingUntil: waiting ? card.waitingUntil : null,
+          waitingTime: waiting ? card.waitingTime : null,
           updatedAt: nowIso(),
         }
         await repo.cards.put(next)

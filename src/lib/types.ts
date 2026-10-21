@@ -132,6 +132,8 @@ export type Card = {
    * Vidée en même temps que la raison quand l'attente est retirée.
    */
   waitingUntil: string | null
+  /** Heure de la relance, `HH:MM` ou null — n'existe qu'avec `waitingUntil`. */
+  waitingTime: string | null
   checklists: Checklist[]
   /** Nombre de pièces jointes ; les fichiers eux-mêmes vivent dans leur propre store. */
   attachmentCount: number

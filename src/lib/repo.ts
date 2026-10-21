@@ -121,6 +121,7 @@ type CardRow = {
   waiting: boolean
   waiting_reason: string
   waiting_until: string | null
+  waiting_time: string | null
   checklists: Checklist[]
   attachment_count: number
   schedule: CardSchedule | null
@@ -306,6 +307,7 @@ const card = {
     // Colonne ajoutée après coup : les lignes d'avant n'ont pas de raison.
     waitingReason: r.waiting_reason ?? '',
     waitingUntil: r.waiting_until ?? null,
+    waitingTime: r.waiting_time ?? null,
     checklists: r.checklists ?? [],
     attachmentCount: r.attachment_count,
     schedule: r.schedule ?? null,
@@ -330,6 +332,7 @@ const card = {
     waiting: c.waiting,
     waiting_reason: c.waitingReason,
     waiting_until: c.waitingUntil,
+    waiting_time: c.waitingTime,
     checklists: c.checklists,
     attachment_count: c.attachmentCount,
     schedule: c.schedule,

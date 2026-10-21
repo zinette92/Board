@@ -666,13 +666,21 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
               <span className="text-[11px] text-muted">Me relancer le</span>
               <DatePicker
                 day={card.waitingUntil}
-                onSelect={(day) => void store.updateCard(card.id, { waitingUntil: day })}
-                onClear={() => void store.updateCard(card.id, { waitingUntil: null })}
+                time={card.waitingTime}
+                withTime
+                onSelect={(day, time) =>
+                  void store.updateCard(card.id, { waitingUntil: day, waitingTime: time })
+                }
+                onClear={() =>
+                  void store.updateCard(card.id, { waitingUntil: null, waitingTime: null })
+                }
                 trigger={(toggle) => (
                   <Button size="sm" onClick={toggle}>
                     📣{' '}
                     {card.waitingUntil
-                      ? dueDayFormatter.format(parseDay(card.waitingUntil))
+                      ? `${dueDayFormatter.format(parseDay(card.waitingUntil))}${
+                          card.waitingTime ? ` à ${card.waitingTime}` : ''
+                        }`
                       : 'Choisir une date'}
                   </Button>
                 )}
