@@ -98,6 +98,27 @@ export function formatDue(dueOn: string): string {
 }
 
 /** « 3 jours », « 2 semaines », « 1 mois » — pour le temps restant d'un objectif. */
+/**
+ * Une heure saisie à la volée, en « HH:MM » sur 24 heures — ou null si la
+ * saisie ne veut rien dire.
+ *
+ * Les chiffres suffisent, la saisie est libre : « 10 » vaut dix heures pile,
+ * « 1020 » dix heures vingt, « 930 » neuf heures trente. Les séparateurs sont
+ * ignorés, donc « 10:20 » et « 10h20 » marchent aussi. Jamais d'AM/PM : le
+ * format est le nôtre, pas celui de la langue du navigateur.
+ */
+export function parseTimeInput(raw: string): string | null {
+  const digits = raw.replace(/\D/g, '')
+  if (digits === '') return null
+  const [hour, minute] =
+    digits.length <= 2
+      ? [Number(digits), 0]
+      : [Number(digits.slice(0, digits.length - 2)), Number(digits.slice(-2))]
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null
+  if (hour > 23 || minute > 59) return null
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
 export function formatDuration(days: number): string {
   if (days <= 0) return 'terminé'
   if (days === 1) return '1 jour'

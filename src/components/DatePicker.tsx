@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { addDays, parseDay, toDay, today } from '../lib/dates'
+import { addDays, parseDay, parseTimeInput, toDay, today } from '../lib/dates'
 import { Button, IconButton, cx } from './ui'
 
 /**
@@ -26,13 +26,12 @@ const WEEKDAYS = ['lu', 'ma', 'me', 'je', 've', 'sa', 'di']
 const monthFormatter = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' })
 
 /**
- * L'heure, en champ natif « HH:MM ».
+ * L'heure : un champ de texte, et des chiffres.
  *
- * Deux roues maison tenaient cette place : elles relisaient le contenu du
- * champ à chaque frappe et gardaient les deux PREMIERS chiffres, si bien que
- * taper « 10 » par-dessus une valeur déjà là rendait « 01 ». Le champ natif
- * fait tout cela sans nous — saisie chiffre par chiffre, passage automatique
- * aux minutes, flèches, collage — et se montre à l'heure du système.
+ * « 10 » donne 10:00, « 1020 » donne 10:20, « 930 » donne 09:30 — les
+ * séparateurs sont ignorés, l'heure est toujours sur 24 heures. Ni roues
+ * maison (elles inversaient les chiffres), ni champ natif (qui impose l'AM/PM
+ * quand la langue du navigateur le veut).
  */
 function TimeFields({
   time,
@@ -41,16 +40,38 @@ function TimeFields({
   time: string | null
   onChange: (next: string | null) => void
 }) {
+  /** Ce que le user est en train de taper ; null = on affiche la valeur posée. */
+  const [draft, setDraft] = useState<string | null>(null)
+
+  const commit = () => {
+    if (draft === null) return
+    const parsed = parseTimeInput(draft)
+    setDraft(null)
+    // Saisie incomprise : on revient à la valeur d'avant plutôt que d'inventer.
+    if (parsed !== null || draft.trim() === '') onChange(parsed)
+  }
+
   return (
     <div className="flex items-center justify-center gap-1.5">
       <span className="mr-auto text-xs text-muted">Heure</span>
       <input
-        type="time"
         aria-label="Heure"
-        value={time ?? ''}
-        // Champ vidé : l'échéance redevient une date sans heure.
-        onChange={(event) => onChange(event.target.value || null)}
-        className="rounded-lg border border-line bg-surface px-2 py-1 text-base font-semibold text-ink tabular-nums shadow-sm transition-colors focus:border-accent focus:ring-2 focus:ring-accent/25 focus:outline-none"
+        inputMode="numeric"
+        placeholder="HH:MM"
+        value={draft ?? time ?? ''}
+        // Un clic sélectionne tout : on tape par-dessus sans effacer d'abord.
+        onFocus={(event) => event.target.select()}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit()
+            event.currentTarget.blur()
+          }
+          if (event.key === 'Escape') setDraft(null)
+        }}
+        className="w-20 rounded-lg border border-line bg-surface px-2 py-1 text-center text-base font-semibold text-ink tabular-nums shadow-sm transition-colors placeholder:text-sm placeholder:font-normal placeholder:text-muted/50 focus:border-accent focus:ring-2 focus:ring-accent/25 focus:outline-none"
       />
       {time ? (
         <IconButton label="Sans heure" onClick={() => onChange(null)}>
