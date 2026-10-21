@@ -126,6 +126,12 @@ export type Card = {
    * Vide dès que `waiting` retombe : la raison ne survit pas à l'attente.
    */
   waitingReason: string
+  /**
+   * Jour où se relancer, `YYYY-MM-DD` ou null. Une carte en attente sans
+   * relance dort indéfiniment ; avec une date, elle se signale le jour venu.
+   * Vidée en même temps que la raison quand l'attente est retirée.
+   */
+  waitingUntil: string | null
   checklists: Checklist[]
   /** Nombre de pièces jointes ; les fichiers eux-mêmes vivent dans leur propre store. */
   attachmentCount: number

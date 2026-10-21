@@ -657,6 +657,27 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 if (event.key === 'Enter') event.currentTarget.blur()
               }}
             />
+            {/*
+             * La relance : sans elle, une carte en attente dort dans WAITING
+             * sans que rien ne la réveille. Le jour venu, elle se signale sur
+             * le tableau et l'onglet porte une alerte.
+             */}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-muted">Me relancer le</span>
+              <DatePicker
+                day={card.waitingUntil}
+                onSelect={(day) => void store.updateCard(card.id, { waitingUntil: day })}
+                onClear={() => void store.updateCard(card.id, { waitingUntil: null })}
+                trigger={(toggle) => (
+                  <Button size="sm" onClick={toggle}>
+                    📣{' '}
+                    {card.waitingUntil
+                      ? dueDayFormatter.format(parseDay(card.waitingUntil))
+                      : 'Choisir une date'}
+                  </Button>
+                )}
+              />
+            </div>
             <p className="mt-1.5 text-[11px] text-muted">
               La carte est partie dans {LIST_WAITING}. La raison s'affiche dessus, sur le tableau.
             </p>

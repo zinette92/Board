@@ -81,6 +81,23 @@ export function App() {
     return store.goals.filter((goal) => isOverdue(goal, cards, day)).length
   }, [store.goals, store.cards, day])
 
+  /**
+   * Cartes en attente dont la relance est arrivée. Une alerte sur l'onglet
+   * Tableau, comme pour les objectifs en retard : sans elle, une relance
+   * datée n'aurait aucune chance d'être vue.
+   */
+  const dueWaiting = useMemo(
+    () =>
+      store.cards.filter(
+        (card) =>
+          card.archivedAt === null &&
+          card.waiting &&
+          card.waitingUntil !== null &&
+          card.waitingUntil <= day,
+      ).length,
+    [store.cards, day],
+  )
+
   if (!store.ready) {
     return (
       <div className="grid h-full place-items-center text-sm text-muted">Chargement…</div>
@@ -118,6 +135,12 @@ export function App() {
         <nav className="flex gap-1">
           <TabButton active={view === 'board'} onClick={() => setView('board')}>
             Tableau
+            {dueWaiting > 0 ? (
+              <OverdueBadge
+                className="ml-1"
+                title={`${dueWaiting} carte${dueWaiting > 1 ? 's' : ''} en attente à relancer`}
+              />
+            ) : null}
           </TabButton>
           <TabButton active={view === 'goals'} onClick={() => setView('goals')}>
             Objectifs

@@ -710,8 +710,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next: Card = {
           ...card,
           waiting,
-          // La raison ne vaut que pour l'attente en cours : elle s'efface avec.
+          // Raison et relance ne valent que pour l'attente en cours : elles
+          // s'effacent avec elle.
           waitingReason: waiting ? reason.trim() : '',
+          waitingUntil: waiting ? card.waitingUntil : null,
           updatedAt: nowIso(),
         }
         await repo.cards.put(next)

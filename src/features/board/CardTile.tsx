@@ -3,7 +3,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
 import { ConfirmButton, Pill, cx } from '../../components/ui'
-import { dueTone, formatDue } from '../../lib/dates'
+import { dueTone, formatDue, today } from '../../lib/dates'
 import { formatAmount } from '../../lib/goals'
 import { chipStyle } from '../../lib/palette'
 import { setPlanPayload } from '../calendar/DayRail'
@@ -206,7 +206,7 @@ export function CardFace({
       </div>
 
       {goal ||
-      (card.waiting && card.waitingReason.trim()) ||
+      (card.waiting && (card.waitingReason.trim() || card.waitingUntil)) ||
       card.dueOn ||
       hasDescription ||
       items.length > 0 ||
@@ -218,6 +218,19 @@ export function CardFace({
           {card.waiting && card.waitingReason.trim() ? (
             <Pill tone="warn" className="max-w-full">
               <span className="truncate">⏳ {card.waitingReason}</span>
+            </Pill>
+          ) : null}
+          {/* La relance : discrète tant qu'elle est loin, alarmante le jour venu. */}
+          {card.waiting && card.waitingUntil ? (
+            <Pill
+              tone={card.waitingUntil <= today() ? 'danger' : 'muted'}
+              title={
+                card.waitingUntil <= today()
+                  ? 'Relance à faire'
+                  : `Relance prévue le ${formatDue(card.waitingUntil)}`
+              }
+            >
+              📣 {formatDue(card.waitingUntil)}
             </Pill>
           ) : null}
           {goal ? (
