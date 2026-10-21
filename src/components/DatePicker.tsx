@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode, RefObject } from 'react'
+import type { ReactNode } from 'react'
 
 import { addDays, parseDay, toDay, today } from '../lib/dates'
 import { Button, IconButton, cx } from './ui'
@@ -25,121 +25,15 @@ const WEEKDAYS = ['lu', 'ma', 'me', 'je', 've', 'sa', 'di']
 
 const monthFormatter = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' })
 
-const pad2 = (value: number) => String(value).padStart(2, '0')
-
 /**
- * Un segment du sélecteur d'heure : valeur éditable au clavier, chevrons
- * discrets au survol, molette de souris, flèches ↑/↓. Les incréments passent
- * par `onBump` — le parent lit sa vérité synchrone, aucune fermeture périmée.
+ * L'heure, en champ natif « HH:MM ».
+ *
+ * Deux roues maison tenaient cette place : elles relisaient le contenu du
+ * champ à chaque frappe et gardaient les deux PREMIERS chiffres, si bien que
+ * taper « 10 » par-dessus une valeur déjà là rendait « 01 ». Le champ natif
+ * fait tout cela sans nous — saisie chiffre par chiffre, passage automatique
+ * aux minutes, flèches, collage — et se montre à l'heure du système.
  */
-function NumberSpin({
-  label,
-  value,
-  step,
-  onBump,
-  onSet,
-  inputRef,
-  firstDigitMax,
-  onFilled,
-}: {
-  label: string
-  value: number | null
-  step: number
-  onBump: (delta: number) => void
-  onSet: (next: number) => void
-  inputRef?: RefObject<HTMLInputElement | null>
-  /**
-   * Plus grand chiffre pouvant EN COMMENCER DEUX : 2 pour les heures (pas
-   * d'heure « 30 »), 5 pour les minutes. Au-delà, la saisie d'un seul chiffre
-   * suffit — « 9 » vaut 09 et la valeur est complète.
-   */
-  firstDigitMax: number
-  /** La valeur est complète : au champ suivant, sans lever les doigts. */
-  onFilled?: () => void
-}) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const zone = useRef<HTMLDivElement>(null)
-  const shown = draft ?? (value === null ? '' : pad2(value))
-
-  const commitDraft = (raw: string | null = draft) => {
-    if (raw === null) return
-    const parsed = Number(raw)
-    setDraft(null)
-    if (raw.trim() !== '' && Number.isFinite(parsed)) onSet(Math.trunc(parsed))
-  }
-
-  // Molette : écouteur natif non passif — React déclare `onWheel` passif, ce
-  // qui interdirait le preventDefault (la modale défilerait derrière).
-  useEffect(() => {
-    const el = zone.current
-    if (!el) return
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault()
-      onBump(event.deltaY < 0 ? step : -step)
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  })
-
-  return (
-    <div ref={zone} className="group flex items-center">
-      <input
-        ref={inputRef}
-        aria-label={label}
-        inputMode="numeric"
-        placeholder="XX"
-        value={shown}
-        // Un clic sélectionne tout : on tape par-dessus, sans effacer d'abord.
-        onFocus={(event) => event.target.select()}
-        className="w-7 border-0 bg-transparent text-center text-base font-semibold text-ink tabular-nums placeholder:font-normal placeholder:text-muted/40 focus:outline-none"
-        onChange={(event) => {
-          const digits = event.target.value.replace(/\D/g, '').slice(0, 2)
-          setDraft(digits)
-          // Deux chiffres, ou un seul qui ne peut pas en commencer deux : la
-          // valeur est complète, on enchaîne.
-          if (digits.length === 2 || (digits.length === 1 && Number(digits) > firstDigitMax)) {
-            commitDraft(digits)
-            onFilled?.()
-          }
-        }}
-        onBlur={() => commitDraft()}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') commitDraft()
-          if (event.key === 'ArrowUp') {
-            event.preventDefault()
-            onBump(step)
-          }
-          if (event.key === 'ArrowDown') {
-            event.preventDefault()
-            onBump(-step)
-          }
-        }}
-      />
-      <span className="flex flex-col opacity-40 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label={`${label} +`}
-          className="grid h-3.5 w-4 place-items-center text-[8px] leading-none text-muted hover:text-accent"
-          onClick={() => onBump(step)}
-        >
-          ▲
-        </button>
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-label={`${label} -`}
-          className="grid h-3.5 w-4 place-items-center text-[8px] leading-none text-muted hover:text-accent"
-          onClick={() => onBump(-step)}
-        >
-          ▼
-        </button>
-      </span>
-    </div>
-  )
-}
-
-/** L'heure en deux roues — Heure et Minutes — avec « Sans heure » pour effacer. */
 function TimeFields({
   time,
   onChange,
@@ -147,80 +41,19 @@ function TimeFields({
   time: string | null
   onChange: (next: string | null) => void
 }) {
-  /**
-   * Vérité locale pendant la vie du popover : les clics rapides sur ▲/▼
-   * s'enchaînent sans attendre l'aller-retour IndexedDB du parent — sinon un
-   * martèlement de flèche relit une valeur en retard et perd des pas.
-   */
-  const localRef = useRef<string | null>(time)
-  /** Cible du passage automatique une fois l'heure saisie. */
-  const minuteRef = useRef<HTMLInputElement>(null)
-  const [, rerender] = useState(0)
-  const commit = (next: string | null) => {
-    localRef.current = next
-    rerender((tick) => tick + 1)
-    onChange(next)
-  }
-
-  /** Lecture synchrone de la vérité locale — jamais d'une fermeture de rendu. */
-  const read = () => {
-    const raw = localRef.current
-    if (!raw) return { hour: null as number | null, minute: null as number | null }
-    const [h, m] = raw.split(':')
-    return { hour: Number(h), minute: Number(m) }
-  }
-  const wrapMod = (value: number, mod: number) => ((value % mod) + mod) % mod
-
-  // Première interaction sans heure posée : on part de l'heure courante.
-  const bumpHour = (delta: number) => {
-    const { hour, minute } = read()
-    commit(`${pad2(wrapMod((hour ?? new Date().getHours()) + delta, 24))}:${pad2(minute ?? 0)}`)
-  }
-  const setHour = (next: number) => {
-    const { minute } = read()
-    commit(`${pad2(wrapMod(next, 24))}:${pad2(minute ?? 0)}`)
-  }
-  const bumpMinute = (delta: number) => {
-    const { hour, minute } = read()
-    commit(`${pad2(hour ?? new Date().getHours())}:${pad2(wrapMod((minute ?? 0) + delta, 60))}`)
-  }
-  const setMinute = (next: number) => {
-    const { hour } = read()
-    commit(`${pad2(hour ?? new Date().getHours())}:${pad2(wrapMod(next, 60))}`)
-  }
-
-  const { hour, minute } = read()
-
   return (
     <div className="flex items-center justify-center gap-1.5">
       <span className="mr-auto text-xs text-muted">Heure</span>
-      {/* Un seul champ à l'œil — « XX:XX » — fait de deux saisies : taper
-          l'heure passe tout seul aux minutes. */}
-      <div className="inline-flex items-center rounded-lg border border-line bg-surface px-1 py-1 shadow-sm transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25">
-        <NumberSpin
-          label="Heure"
-          value={hour}
-          step={1}
-          firstDigitMax={2}
-          onBump={bumpHour}
-          onSet={setHour}
-          onFilled={() => minuteRef.current?.focus()}
-        />
-        <span aria-hidden className="px-px pb-0.5 text-base font-semibold text-muted">
-          :
-        </span>
-        <NumberSpin
-          label="Minutes"
-          value={minute}
-          step={5}
-          firstDigitMax={5}
-          inputRef={minuteRef}
-          onBump={bumpMinute}
-          onSet={setMinute}
-        />
-      </div>
-      {localRef.current ? (
-        <IconButton label="Sans heure" onClick={() => commit(null)}>
+      <input
+        type="time"
+        aria-label="Heure"
+        value={time ?? ''}
+        // Champ vidé : l'échéance redevient une date sans heure.
+        onChange={(event) => onChange(event.target.value || null)}
+        className="rounded-lg border border-line bg-surface px-2 py-1 text-base font-semibold text-ink tabular-nums shadow-sm transition-colors focus:border-accent focus:ring-2 focus:ring-accent/25 focus:outline-none"
+      />
+      {time ? (
+        <IconButton label="Sans heure" onClick={() => onChange(null)}>
           ✕
         </IconButton>
       ) : null}

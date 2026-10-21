@@ -5,6 +5,9 @@
    l'inverse, pour qu'aucune couleur n'existe seulement dans un media query.
    -------------------------------------------------------------------------- */
 :root {
+  /* Les contrôles natifs — champ d'heure, barres de défilement — suivent le
+     thème : sans cette ligne, un champ « HH:MM » reste blanc en mode sombre. */
+  color-scheme: light;
   --bg: oklch(0.98 0.005 250);
   --surface: oklch(1 0 0);
   --surface-2: oklch(0.965 0.006 250);
@@ -21,6 +24,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    color-scheme: dark;
     --bg: oklch(0.19 0.014 260);
     --surface: oklch(0.235 0.016 260);
     --surface-2: oklch(0.27 0.017 260);
@@ -37,6 +41,7 @@
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --bg: oklch(0.19 0.014 260);
   --surface: oklch(0.235 0.016 260);
   --surface-2: oklch(0.27 0.017 260);
