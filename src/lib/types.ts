@@ -89,6 +89,20 @@ export type Checklist = {
   items: ChecklistItem[]
 }
 
+/**
+ * Une page du plan de travail : comment on s'y prend, là où `description` dit
+ * ce qu'est la tâche. Plusieurs pages par carte, chacune avec son titre — un
+ * gros chantier se découpe (demande user).
+ */
+export type WorkPage = {
+  id: ID
+  title: string
+  /** Markdown, comme la description. */
+  content: string
+  /** ISO : affiché sous l'éditeur, « dernière modification le… ». */
+  updatedAt: string
+}
+
 export type Card = {
   id: ID
   boardId: ID
@@ -96,11 +110,16 @@ export type Card = {
   title: string
   /** Markdown. */
   description: string
-  /**
-   * Comment on s'y prend, là où `description` dit ce qu'est la tâche. Texte
-   * brut, jamais nul : une carte sans plan porte la chaîne vide.
+/**
+   * Texte du plan d'avant les pages. Conservé tel quel, plus lu par
+   * l'interface : [[WorkPage]] a pris le relais.
    */
   workPlan: string
+  /**
+   * Le plan de travail, en pages. Vide tant qu'on n'a rien écrit ; la
+   * première naît à l'ouverture du plan.
+   */
+  workPages: WorkPage[]
   position: number
   /** Objectif SMART servi par cette tâche, s'il y en a un. */
   goalId: ID | null

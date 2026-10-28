@@ -34,6 +34,7 @@ import type {
   List,
   Reminder,
   Repeat,
+  WorkPage,
   Snapshot,
 } from './types'
 
@@ -111,6 +112,7 @@ type CardRow = {
   title: string
   description: string
   work_plan: string
+  work_pages: WorkPage[]
   position: number
   goal_id: string | null
   contribution: number
@@ -296,6 +298,7 @@ const card = {
     description: r.description,
     // Colonne ajoutée après coup : les lignes d'avant n'ont pas de plan.
     workPlan: r.work_plan ?? '',
+    workPages: r.work_pages ?? [],
     position: r.position,
     goalId: r.goal_id,
     contribution: r.contribution,
@@ -322,6 +325,7 @@ const card = {
     title: c.title,
     description: c.description,
     work_plan: c.workPlan,
+    work_pages: c.workPages,
     position: c.position,
     goal_id: c.goalId,
     contribution: c.contribution,

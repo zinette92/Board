@@ -34,6 +34,7 @@ import {
   today,
 } from '../../lib/dates'
 import { formatAmount, formatWithUnit } from '../../lib/goals'
+import { newId, nowIso } from '../../lib/id'
 import { periodShort } from '../../lib/periods'
 import { LIST_WAITING } from '../../lib/lists'
 import { describeSchedule, makeSchedule } from '../../lib/models'
@@ -43,7 +44,15 @@ import { byPosition } from '../../lib/ordering'
 import { chipStyle, listTintStyle } from '../../lib/palette'
 import { MAX_ATTACHMENT_BYTES, useStore } from '../../lib/state'
 import { GOAL_PERIODS, GOAL_PERIOD_LABELS } from '../../lib/types'
-import type { Attachment, Card, CardSchedule, Goal, GoalPeriod, ID } from '../../lib/types'
+import type {
+  Attachment,
+  Card,
+  CardSchedule,
+  Goal,
+  GoalPeriod,
+  ID,
+  WorkPage,
+} from '../../lib/types'
 
 const dueDayFormatter = new Intl.DateTimeFormat('fr-FR', {
   weekday: 'short',
@@ -120,7 +129,9 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   const [title, setTitle] = useState(card.title)
   const [description, setDescription] = useState(card.description)
   const [editingDescription, setEditingDescription] = useState(false)
-  const [workPlan, setWorkPlan] = useState(card.workPlan)
+  const [pages, setPages] = useState<WorkPage[]>(card.workPages)
+  /** Page affichée ; null quand le carnet est encore vide. */
+  const [activePage, setActivePage] = useState<ID | null>(card.workPages[0]?.id ?? null)
   const [waitingReason, setWaitingReason] = useState(card.waitingReason)
   /** Vient de passer la carte en attente : le champ « pourquoi » prend la main. */
   const [askReason, setAskReason] = useState(false)
@@ -256,6 +267,8 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     files: attachments.length > 0 || card.attachmentCount > 0,
   }
   const openSection = (key: string) => setOpened((prev) => ({ ...prev, [key]: true }))
+  /** La page du carnet actuellement ouverte, s'il y en a une. */
+  const current = pages.find((page) => page.id === activePage)
 
   const addChecklist = async () => {
     const created = await store.addChecklist(card.id)
@@ -297,19 +310,42 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
   }
 
   /**
-   * Le plan de travail s'enregistre en quittant le champ. La dernière valeur
-   * écrite est retenue à part : `card.workPlan` n'est à jour qu'après
-   * l'aller-retour en base, trop tard pour savoir s'il reste à écrire.
+   * Le carnet s'enregistre en quittant le plan. On compare les titres et les
+   * contenus, jamais les dates : sinon la seule ouverture d'une page
+   * déclencherait une écriture. `card.workPages` n'est à jour qu'après
+   * l'aller-retour en base, trop tard pour savoir s'il reste à écrire — d'où
+   * cette signature tenue à part.
    */
-  const savedPlan = useRef(card.workPlan)
-  const planRef = useRef({ workPlan, cardId: card.id, store })
-  planRef.current = { workPlan, cardId: card.id, store }
+  const pagesKey = (list: WorkPage[]) =>
+    JSON.stringify(list.map((page) => [page.id, page.title, page.content]))
+  const savedPages = useRef(pagesKey(card.workPages))
+  const pagesRef = useRef({ pages, cardId: card.id, store })
+  pagesRef.current = { pages, cardId: card.id, store }
 
-  const saveWorkPlan = () => {
-    const { workPlan: draft, cardId, store: db } = planRef.current
-    if (draft === savedPlan.current) return
-    savedPlan.current = draft
-    void db.updateCard(cardId, { workPlan: draft })
+  const saveWorkPages = () => {
+    const { pages: draft, cardId, store: db } = pagesRef.current
+    const key = pagesKey(draft)
+    if (key === savedPages.current) return
+    savedPages.current = key
+    void db.updateCard(cardId, { workPages: draft })
+  }
+
+  /** Une page change : son horodatage suit, c'est lui qu'on affiche dessous. */
+  const touchPage = (id: ID, patch: Partial<WorkPage>) =>
+    setPages((list) =>
+      list.map((page) => (page.id === id ? { ...page, ...patch, updatedAt: nowIso() } : page)),
+    )
+
+  const addPage = (title: string) => {
+    const page: WorkPage = { id: newId(), title, content: '', updatedAt: nowIso() }
+    setPages((list) => [...list, page])
+    setActivePage(page.id)
+  }
+
+  const removePage = (id: ID) => {
+    const reste = pages.filter((page) => page.id !== id)
+    setPages(reste)
+    if (activePage === id) setActivePage(reste[0]?.id ?? null)
   }
 
   const saveWaitingReason = () => {
@@ -330,14 +366,20 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
 
   /** Quitter le plan l'enregistre : ni bouton à cliquer, ni perte possible. */
   const leavePlan = () => {
-    saveWorkPlan()
+    saveWorkPages()
     setPlanMode(false)
+  }
+
+  /** Entrer dans le plan : un carnet vide s'ouvre sur une première page. */
+  const enterPlan = () => {
+    if (pages.length === 0) addPage('Plan')
+    setPlanMode(true)
   }
 
   // Un Échap démonte la fiche sans déclencher de `blur` : sans cet
   // enregistrement au démontage, le texte en cours serait perdu.
-  const saveRef = useRef(saveWorkPlan)
-  saveRef.current = saveWorkPlan
+  const saveRef = useRef(saveWorkPages)
+  saveRef.current = saveWorkPages
   useEffect(() => () => saveRef.current(), [])
 
   /** Champs d'ajout, par checklist. Non contrôlés : voir `submitItemForm`. */
@@ -586,19 +628,69 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     >
       <div className="flex flex-col gap-6 pb-1">
         {planMode ? (
-          <DescriptionEditor
-            value={workPlan}
-            onChange={setWorkPlan}
-            onSave={leavePlan}
-            // Échap ne referme que le plan, et l'enregistre au passage.
-            onCancel={leavePlan}
-            contentClass="prose-card max-h-[60vh] min-h-[22rem] overflow-y-auto px-3 py-2 focus:outline-none"
-            actions={
-              <span className="text-[11px] text-muted">
-                Enregistré en quittant le plan — mise en forme conservée.
-              </span>
-            }
-          />
+          <div className="flex flex-col gap-2">
+            {/* Les pages du carnet : un gros chantier se découpe. */}
+            <div className="flex flex-wrap items-center gap-1">
+              {pages.map((page) => (
+                <button
+                  key={page.id}
+                  type="button"
+                  onClick={() => setActivePage(page.id)}
+                  className={cx(
+                    'h-7 max-w-44 truncate rounded-md border px-2 text-xs font-medium transition-colors',
+                    page.id === activePage
+                      ? 'border-accent bg-accent/10 text-ink'
+                      : 'border-line text-muted hover:border-accent/60 hover:text-ink',
+                  )}
+                >
+                  {page.title.trim() || 'Sans titre'}
+                </button>
+              ))}
+              <Button size="sm" variant="ghost" onClick={() => addPage(`Page ${pages.length + 1}`)}>
+                + Page
+              </Button>
+            </div>
+
+            {current ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <InlineEdit
+                    value={current.title}
+                    onSubmit={(title) => touchPage(current.id, { title })}
+                    className="text-sm font-semibold"
+                    placeholder="Titre de la page"
+                  />
+                  <ConfirmButton
+                    size="sm"
+                    className="ml-auto"
+                    confirmLabel="Supprimer la page ?"
+                    onConfirm={() => removePage(current.id)}
+                  >
+                    Supprimer
+                  </ConfirmButton>
+                </div>
+                {/*
+                 * `key` : changer de page remonte l'éditeur. Sans cela TipTap
+                 * garderait le contenu de la page précédente, qu'il ne lit
+                 * qu'à sa création.
+                 */}
+                <DescriptionEditor
+                  key={current.id}
+                  value={current.content}
+                  onChange={(content) => touchPage(current.id, { content })}
+                  onSave={leavePlan}
+                  // Échap ne referme que le plan, et l'enregistre au passage.
+                  onCancel={leavePlan}
+                  contentClass="prose-card max-h-[60vh] min-h-[22rem] overflow-y-auto px-3 py-2 focus:outline-none"
+                  actions={
+                    <span className="text-[11px] text-muted">
+                      Dernière modification le {formatInstant(current.updatedAt)}
+                    </span>
+                  }
+                />
+              </>
+            ) : null}
+          </div>
         ) : null}
 
         {/* Masqué, pas démonté : une description en cours d'écriture, une
@@ -1296,7 +1388,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 title={label}
                 aria-label={label}
                 aria-pressed={active}
-                onClick={() => (tab === 'plan' ? setPlanMode(true) : leavePlan())}
+                onClick={() => (tab === 'plan' ? enterPlan() : leavePlan())}
                 className={cx(
                   'relative inline-flex h-9 w-16 items-center justify-center rounded-lg transition-colors',
                   active ? 'bg-surface-2 text-ink' : 'text-muted hover:bg-surface-2 hover:text-ink',
@@ -1304,7 +1396,7 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
               >
                 <CardTabIcon tab={tab} />
                 {/* Un point dit qu'il y a déjà un plan, sans quitter la carte. */}
-                {tab === 'plan' && workPlan.trim() ? (
+                {tab === 'plan' && pages.length > 0 ? (
                   <span className="absolute top-2 right-4 size-1.5 rounded-full bg-accent" />
                 ) : null}
               </button>
