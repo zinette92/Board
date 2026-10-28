@@ -136,6 +136,13 @@ body {
   font-size: 0.875rem;
   line-height: 1.6;
 }
+/* Une image collée ne déborde jamais de sa page. */
+.prose-card img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
 .prose-card > * + * {
   margin-top: 0.6em;
 }

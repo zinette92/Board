@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Extension } from '@tiptap/core'
+import ImageExtension from '@tiptap/extension-image'
 import LinkExtension from '@tiptap/extension-link'
 import UnderlineExtension from '@tiptap/extension-underline'
 import { EditorContent, useEditor } from '@tiptap/react'
@@ -42,6 +43,7 @@ import { AutomationFields } from '../automations/AutomationsView'
 import { RAIL_OPEN_EVENT, setPlanPayload } from '../calendar/DayRail'
 import { byPosition } from '../../lib/ordering'
 import { chipStyle, listTintStyle } from '../../lib/palette'
+import { prepareInlineImage } from '../../lib/image'
 import { MAX_ATTACHMENT_BYTES, useStore } from '../../lib/state'
 import { GOAL_PERIODS, GOAL_PERIOD_LABELS } from '../../lib/types'
 import type {
@@ -424,6 +426,9 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
+      // Déjà traité par l'éditeur d'une page ou de la description : l'image y
+      // est entrée, elle n'a rien à faire en plus dans les pièces jointes.
+      if (event.defaultPrevented) return
       const images = Array.from(event.clipboardData?.files ?? []).filter((file) =>
         file.type.startsWith('image/'),
       )
@@ -1586,6 +1591,8 @@ function DescriptionEditor({
     extensions: [
       StarterKit,
       UnderlineExtension,
+      // `allowBase64` : l'image collée vit dans le texte, pas dans un bucket.
+      ImageExtension.configure({ allowBase64: true }),
       LinkExtension.configure({ openOnClick: false, autolink: true }),
       // html:true — le souligné n'existe pas en markdown : il voyage en <u>.
       MarkdownExtension.configure({ html: true }),
@@ -1597,6 +1604,34 @@ function DescriptionEditor({
       attributes: {
         class:
           contentClass ?? 'prose-card max-h-96 min-h-36 overflow-y-auto px-3 py-2 focus:outline-none',
+      },
+      /*
+       * Une image collée s'insère DANS la page, à l'endroit du curseur. Le
+       * `preventDefault` fait d'une pierre deux coups : il empêche le collage
+       * natif, et il signale à l'écouteur de la fiche — qui transforme sinon
+       * toute image collée en pièce jointe — que celle-ci a trouvé preneur.
+       */
+      handlePaste: (view, event) => {
+        const images = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+          file.type.startsWith('image/'),
+        )
+        if (images.length === 0) return false
+        event.preventDefault()
+        void (async () => {
+          for (const file of images) {
+            try {
+              const src = await prepareInlineImage(file)
+              view.dispatch(
+                view.state.tr.replaceSelectionWith(
+                  view.state.schema.nodes.image.create({ src }),
+                ),
+              )
+            } catch {
+              /* Image illisible : on n'insère rien plutôt qu'un cadre cassé. */
+            }
+          }
+        })()
+        return true
       },
       handleKeyDown: (_view, event) => {
         if (event.key === 'Escape') {
