@@ -22,6 +22,7 @@
  * Variables d'environnement attendues (Vercel → Settings → Environment
  * Variables) : GOOGLE_SA_EMAIL, GOOGLE_SA_PRIVATE_KEY (les \n littéraux sont
  * acceptés), GOOGLE_CALENDAR_ID (l'agenda par défaut, où vont les créations),
+ * GCAL_OWNER_ID (le seul compte autorisé — voir le contrôle dans le handler),
  * plus VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY déjà présentes pour le front.
  */
 import { createSign } from 'node:crypto'
@@ -82,14 +83,21 @@ async function googleToken(saEmail: string, privateKey: string): Promise<string>
 
 /* --------------------------------------------------- session Supabase ------ */
 
-async function sessionIsValid(authorization: string | undefined): Promise<boolean> {
+/**
+ * QUI appelle, et non plus « est-ce que quelqu'un appelle ». Le pont ouvre des
+ * agendas Google qui n'appartiennent qu'au propriétaire : savoir que la session
+ * est valide ne suffit pas, il faut savoir de qui elle est.
+ */
+async function sessionUserId(authorization: string | undefined): Promise<string | null> {
   const url = process.env.VITE_SUPABASE_URL
   const anon = process.env.VITE_SUPABASE_ANON_KEY
-  if (!url || !anon || !authorization) return false
+  if (!url || !anon || !authorization) return null
   const response = await fetch(`${url}/auth/v1/user`, {
     headers: { apikey: anon, Authorization: authorization },
   })
-  return response.ok
+  if (!response.ok) return null
+  const user = (await response.json()) as { id?: unknown }
+  return typeof user.id === 'string' ? user.id : null
 }
 
 /* ------------------------------------------------------------- handler ----- */
@@ -109,10 +117,28 @@ export default async function handler(req: Req, res: Res) {
   ].filter(Boolean) as string[]
 
   const auth = req.headers.authorization
-  if (!(await sessionIsValid(Array.isArray(auth) ? auth[0] : auth))) {
+  const caller = await sessionUserId(Array.isArray(auth) ? auth[0] : auth)
+  if (caller === null) {
     res.status(401).json({ ok: false, error: 'Session Supabase absente ou expirée.' })
     return
   }
+
+  /*
+   * Le seul compte autorisé à passer par le pont (GCAL_OWNER_ID).
+   *
+   * Sans cette variable, n'importe quel compte du projet Supabase atteindrait
+   * les agendas du compte de service. Aujourd'hui il n'en existe qu'un et les
+   * inscriptions sont fermées — mais c'est une case à cocher dans un tableau de
+   * bord, pas une garantie du code. Variable absente : on laisse passer, pour
+   * ne pas couper l'agenda avant qu'elle soit posée ; l'identité de l'appelant
+   * est alors renvoyée, c'est elle qu'il faut y mettre.
+   */
+  const owner = process.env.GCAL_OWNER_ID?.trim()
+  if (owner && caller !== owner) {
+    res.status(403).json({ ok: false, error: "Ce compte n'a pas accès au pont agenda." })
+    return
+  }
+  if (!owner) res.setHeader('X-Caller-Id', caller)
 
   const body =
     typeof req.body === 'string' ? (JSON.parse(req.body || '{}') as never) : ((req.body ?? {}) as never)
