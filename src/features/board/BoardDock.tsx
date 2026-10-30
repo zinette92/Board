@@ -6,9 +6,10 @@ import { Button, IconButton, TextInput, cx } from '../../components/ui'
 import { DOCK_HINTS, DOCK_NAMES, DOCK_SLOTS, dockListOf, isDockList } from '../../lib/dock'
 import type { DockSlot } from '../../lib/dock'
 import { byPosition } from '../../lib/ordering'
+import { chipStyle } from '../../lib/palette'
 import { useStore } from '../../lib/state'
 import type { Store } from '../../lib/state'
-import type { Card, ID, List } from '../../lib/types'
+import type { Card, ID, Label, List } from '../../lib/types'
 import { LabelGrid } from './LabelGrid'
 import { CardFace } from './CardTile'
 
@@ -213,6 +214,30 @@ export function BoardDock({
 
   const active = sections.find((section) => section.slot === open)
 
+  /**
+   * Les cartes de la section ouverte, groupées par étiquette — « catégorie »
+   * dans le vocabulaire du tableau. Une carte en porte une seule ; les rares
+   * cartes qui n'en ont pas se retrouvent ensemble, en dernier. L'ordre des
+   * groupes suit celui des étiquettes des réglages, pour qu'il ne change pas
+   * d'une ouverture à l'autre.
+   */
+  const groups = useMemo(() => {
+    const rank = new Map(store.labels.map((label, index) => [label.id, index] as const))
+    const byLabel = new Map<string, { label: Label | undefined; cards: Card[] }>()
+    for (const card of active?.cards ?? []) {
+      const label = card.labelIds.map((id) => labelsById.get(id)).find((item) => item !== undefined)
+      const key = label?.id ?? ''
+      const group = byLabel.get(key) ?? { label, cards: [] }
+      group.cards.push(card)
+      byLabel.set(key, group)
+    }
+    return [...byLabel.values()].sort(
+      (a, b) =>
+        (a.label ? (rank.get(a.label.id) ?? 0) : Number.MAX_SAFE_INTEGER) -
+        (b.label ? (rank.get(b.label.id) ?? 0) : Number.MAX_SAFE_INTEGER),
+    )
+  }, [active?.cards, labelsById, store.labels])
+
   /** La liste d'une section n'est créée qu'au moment où l'on y dépose quelque chose. */
   const listFor = (slot: DockSlot) => ensureDockList(store, boardId, lists, slot)
 
@@ -276,8 +301,31 @@ export function BoardDock({
                 Rien ici pour l'instant.
               </p>
             ) : (
-              <ul className="flex flex-col gap-1.5">
-                {active.cards.map((card) => (
+              <div className="flex flex-col gap-3">
+                {groups.map((group) => (
+                  <div key={group.label?.id ?? 'sans-etiquette'} className="flex flex-col gap-1.5">
+                    {/* En-tête de catégorie : inutile quand tout est dans le
+                        même panier — la liste se lit déjà comme un tout. */}
+                    {groups.length > 1 ? (
+                      <div className="flex items-center gap-1.5">
+                        {group.label ? (
+                          <span
+                            className="rounded border px-1.5 py-px text-[10px] leading-tight font-medium"
+                            style={chipStyle(group.label.color)}
+                          >
+                            {group.label.name}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-muted italic">Sans étiquette</span>
+                        )}
+                        <span className="text-[11px] text-muted tabular-nums">
+                          {group.cards.length}
+                        </span>
+                        <span aria-hidden className="h-px flex-1 bg-line" />
+                      </div>
+                    ) : null}
+                    <ul className="flex flex-col gap-1.5">
+                {group.cards.map((card) => (
                   <li key={card.id} data-card-id={card.id} className="flex flex-col gap-1">
                     <div className="flex items-start gap-1.5">
                       <button
@@ -287,9 +335,15 @@ export function BoardDock({
                       >
                         <CardFace
                           card={card}
-                          labels={card.labelIds
-                            .map((id) => labelsById.get(id))
-                            .filter((label) => label !== undefined)}
+                          /* L'en-tête de catégorie porte déjà l'étiquette : la
+                             répéter sur chaque carte n'apprend rien. */
+                          labels={
+                            groups.length > 1
+                              ? []
+                              : card.labelIds
+                                  .map((id) => labelsById.get(id))
+                                  .filter((label) => label !== undefined)
+                          }
                           goal={card.goalId ? goalsById.get(card.goalId) : undefined}
                           planTitle={card.title}
                           onToggleDone={() => void store.setCardDone(card.id, card.doneAt === null)}
@@ -346,7 +400,10 @@ export function BoardDock({
                     ) : null}
                   </li>
                 ))}
-              </ul>
+                    </ul>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
