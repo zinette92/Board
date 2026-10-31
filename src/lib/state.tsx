@@ -128,6 +128,12 @@ export type Store = {
    */
   duplicateCard: (id: ID, toListId?: ID) => Promise<Card | undefined>
   /**
+   * Fait naître une carte à partir d'un morceau d'une autre — une checklist,
+   * une étape. Elle hérite de l'étiquette de sa carte d'origine et se pose en
+   * tête de TODAY : c'est une tâche à faire, pas une archive.
+   */
+  createCardFromPart: (cardId: ID, title: string) => Promise<Card | undefined>
+  /**
    * Met la carte en attente, ou l'en retire. La mise en attente l'envoie en
    * haut de WAITING et retient la raison ; la sortie d'attente efface celle-ci
    * et laisse la carte où elle est.
@@ -702,6 +708,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = { ...card, schedule, updatedAt: nowIso() }
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
+      },
+
+      createCardFromPart: async (cardId, title) => {
+        const parent = snap().cards.find((item) => item.id === cardId)
+        if (!parent) return undefined
+        const target = await listNamed(parent.boardId, LIST_TODAY)
+        const born = makeCard(
+          parent.boardId,
+          target.id,
+          title,
+          positionAtStart(cardsOfList(target.id).map((item) => item.position)),
+        )
+        // L'étiquette suit : la carte issue d'un chantier reste dans sa famille.
+        const next: Card = { ...born, labelIds: [...parent.labelIds] }
+        await repo.cards.put(next)
+        apply({ cards: upsert(snap().cards, [next]) })
+        return next
       },
 
       setCardWaiting: async (id, waiting, reason = '') => {

@@ -1068,12 +1068,25 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                 </span>
               }
               action={
-                <ConfirmButton
-                  confirmLabel="Supprimer ?"
-                  onConfirm={() => void store.removeChecklist(card.id, checklist.id)}
-                >
-                  Supprimer
-                </ConfirmButton>
+                <div className="flex items-center gap-1">
+                  {/* Le titre de la checklist, pas ses étapes : c'est le
+                      chantier qui part sur le tableau, pas son détail. */}
+                  <MakeCardButton
+                    label="Faire une carte de cette checklist"
+                    onCreate={() =>
+                      store.createCardFromPart(
+                        card.id,
+                        `${card.title.trim()} : ${checklist.title.trim() || 'Checklist'}`,
+                      )
+                    }
+                  />
+                  <ConfirmButton
+                    confirmLabel="Supprimer ?"
+                    onConfirm={() => void store.removeChecklist(card.id, checklist.id)}
+                  >
+                    Supprimer
+                  </ConfirmButton>
+                </div>
               }
             >
               {checklist.items.length > 0 ? (
@@ -1209,6 +1222,15 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                           >
                             🕐
                           </IconButton>
+                        )
+                      }
+                    />
+                    <MakeCardButton
+                      label="Faire une carte de cette étape"
+                      onCreate={() =>
+                        store.createCardFromPart(
+                          card.id,
+                          `${card.title.trim()} : ${item.text.trim()}`,
                         )
                       }
                     />
@@ -1465,6 +1487,36 @@ function goalsOfPeriod(goals: Goal[], period: GoalPeriod, day: string): Goal[] {
           ? a.startsOn.localeCompare(b.startsOn)
           : b.startsOn.localeCompare(a.startsOn),
     )
+}
+
+/**
+ * « En carte » : une checklist ou une étape part sur le tableau.
+ *
+ * Le bouton dit ce qu'il a fait pendant une seconde. Sans cela rien ne
+ * confirmerait la création — la nouvelle carte naît dans TODAY, loin des yeux
+ * de qui travaille dans la fiche.
+ */
+function MakeCardButton({ label, onCreate }: { label: string; onCreate: () => Promise<unknown> }) {
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    if (!done) return
+    const timer = setTimeout(() => setDone(false), 1600)
+    return () => clearTimeout(timer)
+  }, [done])
+
+  return (
+    <IconButton
+      label={done ? 'Carte créée dans TODAY' : label}
+      className={cx(done && 'text-ok')}
+      onClick={async () => {
+        await onCreate()
+        setDone(true)
+      }}
+    >
+      {done ? '✓' : '🗂'}
+    </IconButton>
+  )
 }
 
 /** Le texte d'une étape, débarrassé de son marqueur de liste. */
