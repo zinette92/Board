@@ -33,6 +33,8 @@ import type {
   LabelColor,
   List,
   Reminder,
+  Note,
+  NoteCategory,
   Repeat,
   WorkPage,
   Snapshot,
@@ -419,11 +421,75 @@ function collection<T extends { id: ID }, R>(table: string, map: Mapper<T, R>) {
   }
 }
 
+type NoteCategoryRow = {
+  id: string
+  name: string
+  color: string
+  position: number
+  created_at: string
+}
+
+const noteCategory = {
+  from: (r: NoteCategoryRow): NoteCategory => ({
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    position: r.position,
+    createdAt: r.created_at,
+  }),
+  to: (c: NoteCategory): NoteCategoryRow => ({
+    id: c.id,
+    name: c.name,
+    color: c.color,
+    position: c.position,
+    created_at: c.createdAt,
+  }),
+}
+
+type NoteRow = {
+  id: string
+  category_id: string | null
+  title: string
+  body: string
+  position: number
+  archived_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+const note = {
+  from: (r: NoteRow): Note => ({
+    id: r.id,
+    categoryId: r.category_id,
+    title: r.title,
+    body: r.body,
+    position: r.position,
+    archivedAt: r.archived_at,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }),
+  to: (n: Note): NoteRow => ({
+    id: n.id,
+    category_id: n.categoryId,
+    title: n.title,
+    body: n.body,
+    position: n.position,
+    archived_at: n.archivedAt,
+    created_at: n.createdAt,
+    updated_at: n.updatedAt,
+  }),
+}
+
 export const boards = collection<Board, BoardRow>('boards', board)
 export const lists = collection<List, ListRow>('lists', list)
 export const labels = collection<Label, LabelRow>('labels', label)
 export const goals = collection<Goal, GoalRow>('goals', goal)
 export const cards = collection<Card, CardRow>('cards', card)
+export const noteCategories = collection<NoteCategory, NoteCategoryRow>(
+  'note_categories',
+  noteCategory,
+)
+export const notes = collection<Note, NoteRow>('notes', note)
 export const reminders = collection<Reminder, ReminderRow>('reminders', reminder)
 
 /* ========================================================================== */
@@ -566,13 +632,24 @@ export const wallpapers = {
 
 /** Charge tout ce dont l'interface a besoin. Un usage perso tient largement en mémoire. */
 export async function loadSnapshot(): Promise<Snapshot> {
-  const [boardRows, listRows, cardRows, labelRows, goalRows, reminderRows] = await Promise.all([
+  const [
+    boardRows,
+    listRows,
+    cardRows,
+    labelRows,
+    goalRows,
+    reminderRows,
+    noteCategoryRows,
+    noteRows,
+  ] = await Promise.all([
     boards.all(),
     lists.all(),
     cards.all(),
     labels.all(),
     goals.all(),
     reminders.all(),
+    noteCategories.all(),
+    notes.all(),
   ])
   return {
     boards: boardRows,
@@ -581,6 +658,8 @@ export async function loadSnapshot(): Promise<Snapshot> {
     labels: labelRows,
     goals: goalRows,
     reminders: reminderRows,
+    noteCategories: noteCategoryRows,
+    notes: noteRows,
   }
 }
 

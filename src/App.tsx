@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { IconButton, OverdueBadge, Pill, cx } from './components/ui'
+import { NotesView } from './features/notes/NotesView'
 import { RemindersView, useReminderNotifications } from './features/reminders/RemindersView'
 import { AutomationsView } from './features/automations/AutomationsView'
 import { BoardView } from './features/board/BoardView'
@@ -19,7 +20,7 @@ import { useTheme } from './lib/theme'
 import { useToday } from './lib/useToday'
 import type { ID } from './lib/types'
 
-type View = 'board' | 'goals' | 'calendar' | 'reminders' | 'automations' | 'settings'
+type View = 'board' | 'goals' | 'calendar' | 'reminders' | 'notes' | 'automations' | 'settings'
 
 export function App() {
   const store = useStore()
@@ -168,6 +169,9 @@ export function App() {
               </Pill>
             ) : null}
           </TabButton>
+          <TabButton active={view === 'notes'} onClick={() => setView('notes')}>
+            Notes
+          </TabButton>
           <TabButton active={view === 'calendar'} onClick={() => setView('calendar')}>
             Calendrier
           </TabButton>
@@ -229,6 +233,7 @@ export function App() {
         <CalendarView onOpenCard={setOpenCardId} hasWallpaper={showWallpaper} />
       ) : null}
       {view === 'reminders' ? <RemindersView hasWallpaper={showWallpaper} /> : null}
+      {view === 'notes' ? <NotesView hasWallpaper={showWallpaper} /> : null}
       {view === 'automations' ? (
         <AutomationsView
           boardId={board?.id ?? null}

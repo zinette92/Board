@@ -45,6 +45,8 @@ import * as repo from './repo'
 import { markSeeded, seedIfEmpty } from './seed'
 import type {
   Attachment,
+  Note,
+  NoteCategory,
   Board,
   Card,
   CardSchedule,
@@ -65,6 +67,8 @@ import type {
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 const EMPTY: Snapshot = {
+  noteCategories: [],
+  notes: [],
   boards: [],
   lists: [],
   cards: [],
@@ -100,6 +104,8 @@ export type Store = {
   labels: Label[]
   goals: Goal[]
   reminders: Reminder[]
+  noteCategories: NoteCategory[]
+  notes: Note[]
 
   updateBoard: (id: ID, patch: Partial<Board>) => Promise<void>
   deleteBoard: (id: ID) => Promise<void>
@@ -165,6 +171,19 @@ export type Store = {
     patch: Partial<ChecklistItem>,
   ) => Promise<void>
   removeChecklistItem: (cardId: ID, checklistId: ID, itemId: ID) => Promise<void>
+
+  /* ------------------------------------------------------------------ Notes */
+  /** Une catégorie de carnet, créée par le user — rien à voir avec les étiquettes. */
+  createNoteCategory: (name: string, color: string) => Promise<NoteCategory | undefined>
+  updateNoteCategory: (id: ID, patch: Partial<NoteCategory>) => Promise<void>
+  /** Supprime la catégorie ; ses notes restent, rangées nulle part. */
+  deleteNoteCategory: (id: ID) => Promise<void>
+  /** Une note vide, en tête de sa catégorie : le titre et le corps viennent après. */
+  createNote: (categoryId: ID | null) => Promise<Note | undefined>
+  updateNote: (id: ID, patch: Partial<Note>) => Promise<void>
+  /** Archive ou désarchive : la note est rangée, jamais perdue. */
+  setNoteArchived: (id: ID, archived: boolean) => Promise<void>
+  deleteNote: (id: ID) => Promise<void>
 
   createLabel: (name: string, color: string) => Promise<void>
   updateLabel: (id: ID, patch: Partial<Label>) => Promise<void>
@@ -896,6 +915,81 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* -------------------------------------------------------------- Étiquettes */
+      /* ---------------------------------------------------------------- Notes */
+      createNoteCategory: async (name, color) => {
+        const category: NoteCategory = {
+          id: newId(),
+          name: name.trim() || 'Sans nom',
+          color,
+          position: positionAtEnd(snap().noteCategories.map((item) => item.position)),
+          createdAt: nowIso(),
+        }
+        await repo.noteCategories.put(category)
+        apply({ noteCategories: upsert(snap().noteCategories, [category]) })
+        return category
+      },
+
+      updateNoteCategory: async (id, patch) => {
+        const category = snap().noteCategories.find((item) => item.id === id)
+        if (!category) return
+        const next = { ...category, ...patch }
+        await repo.noteCategories.put(next)
+        apply({ noteCategories: upsert(snap().noteCategories, [next]) })
+      },
+
+      deleteNoteCategory: async (id) => {
+        const current = snap()
+        // La base détache déjà (on delete set null) ; l'affichage doit suivre,
+        // sinon les notes garderaient une catégorie fantôme jusqu'au rechargement.
+        const orphans = current.notes
+          .filter((note) => note.categoryId === id)
+          .map((note) => ({ ...note, categoryId: null }))
+        await repo.noteCategories.remove(id)
+        apply({
+          noteCategories: current.noteCategories.filter((item) => item.id !== id),
+          notes: upsert(current.notes, orphans),
+        })
+      },
+
+      createNote: async (categoryId) => {
+        const at = nowIso()
+        const note: Note = {
+          id: newId(),
+          categoryId,
+          title: '',
+          body: '',
+          // En tête : la dernière écrite est celle qu'on relit.
+          position: positionAtStart(snap().notes.map((item) => item.position)),
+          archivedAt: null,
+          createdAt: at,
+          updatedAt: at,
+        }
+        await repo.notes.put(note)
+        apply({ notes: upsert(snap().notes, [note]) })
+        return note
+      },
+
+      updateNote: async (id, patch) => {
+        const note = snap().notes.find((item) => item.id === id)
+        if (!note) return
+        const next = { ...note, ...patch, updatedAt: nowIso() }
+        await repo.notes.put(next)
+        apply({ notes: upsert(snap().notes, [next]) })
+      },
+
+      setNoteArchived: async (id, archived) => {
+        const note = snap().notes.find((item) => item.id === id)
+        if (!note) return
+        const next = { ...note, archivedAt: archived ? nowIso() : null, updatedAt: nowIso() }
+        await repo.notes.put(next)
+        apply({ notes: upsert(snap().notes, [next]) })
+      },
+
+      deleteNote: async (id) => {
+        await repo.notes.remove(id)
+        apply({ notes: snap().notes.filter((item) => item.id !== id) })
+      },
+
       createLabel: async (name, color) => {
         const label = makeLabel(name, color)
         await repo.labels.put(label)
@@ -1145,6 +1239,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await repo.boards.put(board)
         await repo.lists.putMany(seedLists)
         snapRef.current = {
+          noteCategories: [],
+          notes: [],
           boards: [board],
           lists: seedLists,
           cards: [],

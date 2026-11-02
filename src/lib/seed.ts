@@ -59,7 +59,16 @@ async function seedOnce(): Promise<Snapshot | null> {
   await Promise.all([repo.lists.putMany(lists), repo.labels.putMany(labels)])
   await repo.writeMeta(SEEDED_KEY, true)
 
-  return { boards: [board], lists, cards: [], labels, goals: [], reminders: [] }
+  return {
+    boards: [board],
+    lists,
+    cards: [],
+    labels,
+    goals: [],
+    reminders: [],
+    noteCategories: [],
+    notes: [],
+  }
 }
 
 /**

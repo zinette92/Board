@@ -373,6 +373,35 @@ export type Reminder = {
 }
 
 /** Tout ce que l'app tient en mémoire. Le jeu de données d'un usage perso y rentre sans peine. */
+/**
+ * Une catégorie de notes. Volontairement distincte des étiquettes de cartes :
+ * on ne range pas ses idées comme on range son travail, et mêler les deux
+ * imposerait de créer une étiquette de tableau pour chaque sujet de carnet.
+ */
+export type NoteCategory = {
+  id: ID
+  name: string
+  /** Hex `#rrggbb`, comme une étiquette. */
+  color: string
+  position: number
+  createdAt: string
+}
+
+/** Une note : un titre, du markdown, une catégorie — et l'archivage pour la ranger. */
+export type Note = {
+  id: ID
+  /** Null quand la note n'est rangée nulle part, ou que sa catégorie a disparu. */
+  categoryId: ID | null
+  title: string
+  /** Markdown, comme la description d'une carte. */
+  body: string
+  position: number
+  /** Archivée : rangée sans être perdue. ISO, ou null. */
+  archivedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export type Snapshot = {
   boards: Board[]
   lists: List[]
@@ -380,4 +409,6 @@ export type Snapshot = {
   labels: Label[]
   goals: Goal[]
   reminders: Reminder[]
+  noteCategories: NoteCategory[]
+  notes: Note[]
 }
