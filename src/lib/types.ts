@@ -88,6 +88,14 @@ export type ChecklistItem = {
    * Facultatif : les étapes écrites avant cette feature n'ont pas le champ.
    */
   pageId?: ID | null
+  /**
+   * La carte née de cette étape, s'il y en a une.
+   *
+   * Le lien sert dans les deux sens : l'étape sait qu'elle a déjà donné une
+   * carte, et cocher cette carte coche l'étape. Facultatif, comme `pageId` :
+   * les étapes d'avant ne l'ont pas.
+   */
+  cardId?: ID | null
 }
 
 /** Une carte peut porter plusieurs checklists, chacune avec son titre — comme sur Trello. */

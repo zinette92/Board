@@ -1340,11 +1340,19 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                       📄
                     </IconButton>
                     <MakeCardButton
-                      label="Faire une carte de cette étape"
+                      // Déjà née : l'icône reste visible et le dit, pour ne pas
+                      // créer deux fois la même carte sans s'en apercevoir.
+                      done={item.cardId != null}
+                      label={
+                        item.cardId
+                          ? 'Carte déjà créée pour cette étape'
+                          : 'Faire une carte de cette étape'
+                      }
                       onCreate={() =>
                         store.createCardFromPart(
                           card.id,
                           `${card.title.trim()} : ${item.text.trim()}`,
+                          { checklistId: checklist.id, itemId: item.id },
                         )
                       }
                     />
@@ -1610,22 +1618,34 @@ function goalsOfPeriod(goals: Goal[], period: GoalPeriod, day: string): Goal[] {
  * confirmerait la création — la nouvelle carte naît dans TODAY, loin des yeux
  * de qui travaille dans la fiche.
  */
-function MakeCardButton({ label, onCreate }: { label: string; onCreate: () => Promise<unknown> }) {
-  const [done, setDone] = useState(false)
+function MakeCardButton({
+  label,
+  onCreate,
+  done: already = false,
+}: {
+  label: string
+  onCreate: () => Promise<unknown>
+  /** La carte existe déjà : l'icône le montre en permanence. */
+  done?: boolean
+}) {
+  const [flash, setFlash] = useState(false)
+  const done = flash || already
 
   useEffect(() => {
-    if (!done) return
-    const timer = setTimeout(() => setDone(false), 1600)
+    if (!flash) return
+    const timer = setTimeout(() => setFlash(false), 1600)
     return () => clearTimeout(timer)
-  }, [done])
+  }, [flash])
 
   return (
     <IconButton
-      label={done ? 'Carte créée dans TODAY' : label}
+      // L'accusé de réception ne dure qu'un instant ; passé lui, le libellé
+      // de l'appelant reprend la main et dit l'état durable.
+      label={flash ? 'Carte créée dans TODAY' : label}
       className={cx(done && 'text-ok')}
       onClick={async () => {
         await onCreate()
-        setDone(true)
+        setFlash(true)
       }}
     >
       {done ? '✓' : '🗂'}

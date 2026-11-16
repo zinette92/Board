@@ -138,7 +138,12 @@ export type Store = {
    * une étape. Elle hérite de l'étiquette de sa carte d'origine et se pose en
    * tête de TODAY : c'est une tâche à faire, pas une archive.
    */
-  createCardFromPart: (cardId: ID, title: string) => Promise<Card | undefined>
+  createCardFromPart: (
+    cardId: ID,
+    title: string,
+    /** L'étape d'origine : la carte et elle se répondront ensuite. */
+    origin?: { checklistId: ID; itemId: ID },
+  ) => Promise<Card | undefined>
   /**
    * Met la carte en attente, ou l'en retire. La mise en attente l'envoie en
    * haut de WAITING et retient la raison ; la sortie d'attente efface celle-ci
@@ -623,6 +628,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await repo.cards.put(next)
         apply({ cards: upsert(snap().cards, [next]) })
         await syncGoalOfCard(next.goalId)
+
+        /*
+         * L'étape qui a fait naître cette carte suit son sort : la cocher
+         * coche l'étape, la décocher la décoche. Sans ce retour, il faudrait
+         * pointer deux fois la même chose comme faite (demande user).
+         */
+        const origin = snap().cards.find((item) =>
+          item.checklists.some((list) => list.items.some((entry) => entry.cardId === id)),
+        )
+        if (origin) {
+          const marked: Card = {
+            ...origin,
+            checklists: origin.checklists.map((list) => ({
+              ...list,
+              items: list.items.map((entry) => (entry.cardId === id ? { ...entry, done } : entry)),
+            })),
+            updatedAt: nowIso(),
+          }
+          await repo.cards.put(marked)
+          apply({ cards: upsert(snap().cards, [marked]) })
+        }
+
         // Terminée = elle remonte en tête de DONE, d'où qu'elle vienne. La
         // remettre à faire ne la ramène nulle part : seul le user sait où elle
         // doit repartir.
@@ -729,7 +756,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         apply({ cards: upsert(snap().cards, [next]) })
       },
 
-      createCardFromPart: async (cardId, title) => {
+      createCardFromPart: async (cardId, title, origin) => {
         const parent = snap().cards.find((item) => item.id === cardId)
         if (!parent) return undefined
         const target = await listNamed(parent.boardId, LIST_TODAY)
@@ -742,7 +769,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // L'étiquette suit : la carte issue d'un chantier reste dans sa famille.
         const next: Card = { ...born, labelIds: [...parent.labelIds] }
         await repo.cards.put(next)
-        apply({ cards: upsert(snap().cards, [next]) })
+
+        if (!origin) {
+          apply({ cards: upsert(snap().cards, [next]) })
+          return next
+        }
+        // L'étape retient la carte qu'elle a fait naître : c'est ce lien qui
+        // permettra de la cocher quand la carte sera cochée.
+        const marked: Card = {
+          ...parent,
+          checklists: parent.checklists.map((list) =>
+            list.id === origin.checklistId
+              ? {
+                  ...list,
+                  items: list.items.map((item) =>
+                    item.id === origin.itemId ? { ...item, cardId: next.id } : item,
+                  ),
+                }
+              : list,
+          ),
+          updatedAt: nowIso(),
+        }
+        await repo.cards.put(marked)
+        apply({ cards: upsert(snap().cards, [next, marked]) })
         return next
       },
 
