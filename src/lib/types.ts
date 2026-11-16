@@ -80,6 +80,14 @@ export type ChecklistItem = {
   dueOn: string | null
   /** Heure de l'échéance de l'étape, `HH:MM` ou null. */
   dueTime: string | null
+  /**
+   * La page du plan qui détaille cette étape, s'il y en a une.
+   *
+   * Le lien vit ICI et nulle part ailleurs : une page retrouve ses étapes en
+   * les cherchant, plutôt qu'en tenant sa propre liste qui pourrait diverger.
+   * Facultatif : les étapes écrites avant cette feature n'ont pas le champ.
+   */
+  pageId?: ID | null
 }
 
 /** Une carte peut porter plusieurs checklists, chacune avec son titre — comme sur Trello. */

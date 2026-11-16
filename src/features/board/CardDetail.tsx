@@ -42,6 +42,7 @@ import { GOAL_PERIODS, GOAL_PERIOD_LABELS } from '../../lib/types'
 import type {
   Attachment,
   Card,
+  ChecklistItem,
   CardSchedule,
   Goal,
   GoalPeriod,
@@ -115,6 +116,8 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
    * Soit l'un, soit l'autre, jamais les deux à l'écran (demande user).
    */
   const [planMode, setPlanMode] = useState(false)
+  /** Panneau « 🔗 Tâches » ouvert : on choisit ce que la page détaille. */
+  const [linking, setLinking] = useState(false)
   const planModeRef = useRef(planMode)
   planModeRef.current = planMode
   /** Champs de saisie d'étape ouverts, par checklist. */
@@ -337,6 +340,55 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
     waitingInput.current?.focus()
     setAskReason(false)
   }, [askReason, card.waiting])
+
+  /** Les checklists avec une étape re-liée (ou dé-liée) à une page. */
+  const withLink = (checklistId: ID, itemId: ID, pageId: ID | null) =>
+    card.checklists.map((list) =>
+      list.id === checklistId
+        ? {
+            ...list,
+            items: list.items.map((entry) =>
+              entry.id === itemId ? { ...entry, pageId } : entry,
+            ),
+          }
+        : list,
+    )
+
+  /**
+   * L'icône d'une étape : elle ouvre sa page, et la crée au premier clic.
+   *
+   * La page ET le lien partent dans la même écriture — une page encore dans le
+   * brouillon local laisserait l'étape pointer vers le vide si la fiche se
+   * fermait entre-temps.
+   */
+  const openItemPage = async (checklistId: ID, item: ChecklistItem) => {
+    const existing = item.pageId ? pages.find((page) => page.id === item.pageId) : undefined
+    if (existing) {
+      setActivePage(existing.id)
+      setPlanMode(true)
+      return
+    }
+    const page: WorkPage = {
+      id: newId(),
+      title: item.text.trim() || 'Sans titre',
+      content: '',
+      updatedAt: nowIso(),
+    }
+    const nextPages = [...pages, page]
+    setPages(nextPages)
+    savedPages.current = pagesKey(nextPages)
+    setActivePage(page.id)
+    setPlanMode(true)
+    await store.updateCard(card.id, {
+      workPages: nextPages,
+      checklists: withLink(checklistId, item.id, page.id),
+    })
+  }
+
+  /** Toutes les étapes de la carte, à plat — le panneau de rattachement les liste. */
+  const allItems = card.checklists.flatMap((list) =>
+    list.items.map((item) => ({ checklistId: list.id, checklistTitle: list.title, item })),
+  )
 
   /** Quitter le plan l'enregistre : ni bouton à cliquer, ni perte possible. */
   const leavePlan = () => {
@@ -637,15 +689,89 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                     className="text-sm font-semibold"
                     placeholder="Titre de la page"
                   />
-                  <ConfirmButton
+                  <Button
                     size="sm"
                     className="ml-auto"
+                    variant={linking ? 'primary' : 'subtle'}
+                    onClick={() => setLinking(!linking)}
+                  >
+                    🔗 Tâches{' '}
+                    {allItems.filter((entry) => entry.item.pageId === current.id).length || ''}
+                  </Button>
+                  <ConfirmButton
+                    size="sm"
                     confirmLabel="Supprimer la page ?"
                     onConfirm={() => removePage(current.id)}
                   >
                     Supprimer
                   </ConfirmButton>
                 </div>
+
+                {/*
+                 * Rattacher des étapes à la page. Une étape n'appartient qu'à
+                 * une page : cocher ici la reprend à celle qui la détenait,
+                 * et la ligne le dit avant qu'on clique.
+                 */}
+                {linking ? (
+                  <div className="flex flex-col gap-1 rounded-lg border border-line bg-surface-2/50 p-2">
+                    {allItems.length === 0 ? (
+                      <span className="px-1 text-xs text-muted">
+                        Cette carte n'a pas encore d'étape de checklist.
+                      </span>
+                    ) : (
+                      allItems.map(({ checklistId, checklistTitle, item }) => {
+                        const here = item.pageId === current.id
+                        const ailleurs =
+                          item.pageId && !here
+                            ? pages.find((page) => page.id === item.pageId)
+                            : undefined
+                        return (
+                          <label
+                            key={item.id}
+                            className="flex items-center gap-2 rounded-md px-1 py-0.5 text-xs hover:bg-surface-2"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={here}
+                              onChange={(event) =>
+                                void store.updateCard(card.id, {
+                                  checklists: withLink(
+                                    checklistId,
+                                    item.id,
+                                    event.target.checked ? current.id : null,
+                                  ),
+                                })
+                              }
+                            />
+                            <span className="min-w-0 flex-1 truncate">{item.text}</span>
+                            <span className="shrink-0 text-[10px] text-muted">
+                              {ailleurs ? `sur « ${ailleurs.title} »` : checklistTitle}
+                            </span>
+                          </label>
+                        )
+                      })
+                    )}
+                  </div>
+                ) : null}
+
+                {/* Les étapes de cette page, rappelées sous son titre. */}
+                {allItems.some((entry) => entry.item.pageId === current.id) ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {allItems
+                      .filter((entry) => entry.item.pageId === current.id)
+                      .map(({ item }) => (
+                        <span
+                          key={item.id}
+                          className={cx(
+                            'inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[11px]',
+                            item.done && 'text-muted line-through',
+                          )}
+                        >
+                          {item.done ? '✓' : '○'} {item.text}
+                        </span>
+                      ))}
+                  </div>
+                ) : null}
                 {/*
                  * `key` : changer de page remonte l'éditeur. Sans cela TipTap
                  * garderait le contenu de la page précédente, qu'il ne lit
@@ -1197,6 +1323,22 @@ function CardDetailBody({ card, onClose }: { card: Card; onClose: () => void }) 
                         )
                       }
                     />
+                    <IconButton
+                      label={
+                        item.pageId
+                          ? 'Ouvrir la page de cette étape'
+                          : 'Créer la page de cette étape'
+                      }
+                      className={cx(
+                        // Liée : l'icône reste visible, c'est une information.
+                        item.pageId
+                          ? 'text-accent'
+                          : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                      )}
+                      onClick={() => void openItemPage(checklist.id, item)}
+                    >
+                      📄
+                    </IconButton>
                     <MakeCardButton
                       label="Faire une carte de cette étape"
                       onCreate={() =>
